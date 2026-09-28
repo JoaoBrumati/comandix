@@ -29,7 +29,6 @@
         <nav class="admin-subnav" id="admin-subnav" aria-label="Seções administrativas" hidden>
           <button class="active" data-admin-section="dashboard"><span aria-hidden="true">▥</span>Dashboard</button>
           <button data-admin-section="orders"><span aria-hidden="true">▤</span>Kanban de pedidos</button>
-          <button data-admin-section="employees"><span class="admin-icon-person" aria-hidden="true"><i></i></span>Colaboradores</button>
           <button data-admin-section="menu"><span class="admin-icon-menu" aria-hidden="true"><i></i><i></i><i></i></span>Cardápio</button>
         </nav>
       </nav>
@@ -88,18 +87,6 @@
           <section class="admin-panel" id="admin-orders-panel">
             <div class="admin-section-heading"><div><span class="section-kicker">FLUXO DA COZINHA</span><h2>Kanban de pedidos</h2></div><button class="admin-secondary" id="refresh-kanban">Atualizar</button></div>
             <div class="orders-kanban" id="orders-kanban"></div>
-          </section>
-          <section class="admin-panel" id="admin-employees-panel">
-            <div class="admin-section-heading"><div><span class="section-kicker">CADASTRO E ROTINA</span><h2>Colaboradores</h2></div><button class="admin-primary" id="new-employee-button">+ Novo colaborador</button></div>
-            <form class="employee-form" id="employee-form" hidden>
-              <input id="employee-id" type="hidden" />
-              <label>Nome completo<input id="employee-name" autocomplete="name" required /></label><label>CPF<input id="employee-cpf" inputmode="numeric" maxlength="14" required /></label>
-              <label>Endereço<input id="employee-address" autocomplete="street-address" required /></label><label>Salário (R$)<input id="employee-salary" type="number" min="0" step="0.01" required /></label>
-              <label>Cargo<input id="employee-role" required /></label>
-              <div class="employee-form-actions"><button type="button" class="admin-secondary" id="cancel-employee">Cancelar</button><button type="submit" class="admin-primary">Salvar colaborador</button></div>
-            </form>
-            <div class="employee-tools"><label class="admin-select-label">Registrar ponto<select id="timeclock-employee"><option value="">Selecione um colaborador</option></select></label><button id="register-timeclock" class="admin-secondary">Registrar horário atual</button></div>
-            <div class="employee-list" id="employee-list"></div>
           </section>
           <section class="admin-panel" id="admin-menu-panel">
             <div class="admin-section-heading"><div><span class="section-kicker">PRODUTOS E ADICIONAIS</span><h2>Configurações do cardápio</h2></div><button class="admin-primary" id="new-product-button">+ Novo produto</button></div>

@@ -1,8 +1,6 @@
 const adminLoginView = document.querySelector('#admin-login-view');
 const adminDashboardView = document.querySelector('#admin-dashboard-view');
 const adminLoginFeedback = document.querySelector('#admin-login-feedback');
-const employeeForm = document.querySelector('#employee-form');
-let adminEmployees = [];
 let selectedPeriod = 'daily';
 let requestedAdminSection = 'dashboard';
 const orderStages = [
@@ -46,12 +44,12 @@ async function showAdminDashboard() {
 }
 
 async function showAdminSection(section) {
+  if (!['dashboard', 'orders', 'menu'].includes(section)) section = 'dashboard';
   requestedAdminSection = section;
   document.querySelectorAll('.admin-panel').forEach(panel => panel.classList.toggle('active', panel.id === `admin-${section}-panel`));
   document.querySelectorAll('[data-admin-section]').forEach(link => link.classList.toggle('active', link.dataset.adminSection === section));
   if (section === 'dashboard') await loadDashboard();
   if (section === 'orders') await loadKanban();
-  if (section === 'employees') await loadEmployees();
   if (section === 'menu') await loadAdminMenu();
 }
 

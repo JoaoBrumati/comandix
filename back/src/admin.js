@@ -1,19 +1,9 @@
 const crypto = require('crypto');
-const fs = require('fs');
-const path = require('path');
 const { z } = require('zod');
-const { addons: defaultAddons, addonPrices, catalog, products: defaultProducts } = require('./catalog');
+const prisma = require('./db');
+const { decryptBuffer, decryptJson, encryptBuffer, encryptJson, hashCpf } = require('./encryption');
+const { addons: defaultAddons, products: defaultProducts } = require('./catalog');
 
-const employees = new Map();
-const documents = new Map();
-const menuProducts = new Map(defaultProducts.map(product => [product.id, { ...product }]));
-const addonGroups = structuredClone(defaultAddons);
-const orders = [];
-const orderStatuses = new Set(['new', 'preparing', 'ready', 'out_for_delivery', 'completed', 'cancelled']);
-const dataFile = path.join(__dirname, '..', 'data', 'admin-store.enc');
-let promotions = [];
-let encryptionKey = null;
-let storeSalt = null;
 const employeeSchema = z.object({
   name: z.string().trim().min(5).max(100),
   cpf: z.string().regex(/^\d{11}$/),
@@ -29,6 +19,7 @@ const productSchema = z.object({
   image: z.string().trim().min(1).max(240),
   active: z.boolean().default(true)
 });
+const orderStatuses = new Set(['new', 'preparing', 'ready', 'out_for_delivery', 'completed', 'cancelled']);
 
 function isValidCpf(cpf) {
   if (!/^\d{11}$/.test(cpf) || /^([0-9])\1{10}$/.test(cpf)) return false;
@@ -40,53 +31,68 @@ function isValidCpf(cpf) {
   return digit(9) === Number(cpf[9]) && digit(10) === Number(cpf[10]);
 }
 
-function encryptStore() {
-  if (!encryptionKey) return;
-  const state = {
-    employees: [...employees.values()],
-    documents: [...documents.values()].map(document => ({ ...document, buffer: document.buffer.toString('base64') })),
-    products: [...menuProducts.values()],
-    addons: addonGroups,
-    orders,
-    promotions
-  };
-  const iv = crypto.randomBytes(12);
-  const cipher = crypto.createCipheriv('aes-256-gcm', encryptionKey, iv);
-  const encrypted = Buffer.concat([cipher.update(JSON.stringify(state), 'utf8'), cipher.final()]);
-  const contents = JSON.stringify({ salt: storeSalt.toString('base64'), iv: iv.toString('base64'), tag: cipher.getAuthTag().toString('base64'), data: encrypted.toString('base64') });
-  fs.mkdirSync(path.dirname(dataFile), { recursive: true });
-  const temporaryFile = `${dataFile}.tmp`;
-  fs.writeFileSync(temporaryFile, contents, { mode: 0o600 });
-  fs.renameSync(temporaryFile, dataFile);
+function moneyNumber(value) {
+  return Number(value);
 }
 
-function initializeAdminStore(password) {
-  if (encryptionKey) return;
-  const pendingOrders = [...orders];
-  if (fs.existsSync(dataFile)) {
-    const encryptedStore = JSON.parse(fs.readFileSync(dataFile, 'utf8'));
-    const salt = Buffer.from(encryptedStore.salt, 'base64');
-    const derivedKey = crypto.scryptSync(password, salt, 32);
-    const decipher = crypto.createDecipheriv('aes-256-gcm', derivedKey, Buffer.from(encryptedStore.iv, 'base64'));
-    decipher.setAuthTag(Buffer.from(encryptedStore.tag, 'base64'));
-    const state = Buffer.concat([decipher.update(Buffer.from(encryptedStore.data, 'base64')), decipher.final()]).toString('utf8');
-    const parsed = JSON.parse(state);
-    parsed.employees.forEach(employee => employees.set(employee.id, employee));
-    parsed.documents.forEach(document => documents.set(document.id, { ...document, buffer: Buffer.from(document.buffer, 'base64') }));
-    menuProducts.clear();
-    (parsed.products || defaultProducts).forEach(product => menuProducts.set(product.id, product));
-    for (const group of Object.keys(addonGroups)) addonGroups[group] = parsed.addons?.[group] || structuredClone(defaultAddons[group]);
-    orders.splice(0, orders.length, ...(parsed.orders || []), ...pendingOrders);
-    orders.forEach(order => { order.status ||= 'new'; });
-    promotions = Array.isArray(parsed.promotions) ? parsed.promotions.map(promotion => ({ ...promotion, id: promotion.id || crypto.randomUUID() })) : [];
-    syncCatalog();
-    storeSalt = salt;
-    encryptionKey = derivedKey;
-    return;
+function normalizeEmployee(employee) {
+  const privateData = decryptJson(employee.privateData);
+  return {
+    id: employee.id,
+    ...privateData,
+    createdAt: employee.createdAt.toISOString(),
+    vacations: employee.vacations.map(vacation => ({ ...vacation, start: vacation.start.toISOString().slice(0, 10), end: vacation.end.toISOString().slice(0, 10), createdAt: vacation.createdAt.toISOString() })),
+    timeEntries: employee.timeEntries.map(entry => ({ ...entry, timestamp: entry.timestamp.toISOString() })),
+    documents: employee.documents.map(({ encryptedData, ...document }) => ({ ...document, uploadedAt: document.uploadedAt.toISOString() }))
+  };
+}
+
+function promotionIsActive(promotion, timestamp = new Date()) {
+  return (!promotion.startsAt || promotion.startsAt <= timestamp) && (!promotion.endsAt || promotion.endsAt > timestamp);
+}
+
+function salePrice(product, promotion) {
+  return moneyNumber((moneyNumber(product.price) * (100 - promotion.percentage) / 100).toFixed(2));
+}
+
+function normalizeProduct(product, promotions = [], timestamp = new Date()) {
+  const promotion = promotions.find(item => item.productId === product.id && promotionIsActive(item, timestamp));
+  const price = moneyNumber(product.price);
+  return { ...product, price, originalPrice: promotion ? price : null, promotionPercentage: promotion?.percentage || 0, salePrice: promotion ? salePrice(product, promotion) : null };
+}
+
+function normalizeOrder(order, includeCustomer = true) {
+  const result = {
+    orderId: order.id,
+    status: order.status,
+    subtotal: moneyNumber(order.subtotal),
+    deliveryFee: moneyNumber(order.deliveryFee),
+    total: moneyNumber(order.total),
+    payment: { method: order.paymentMethod, status: order.paymentStatus, ...(order.paymentData ? decryptJson(order.paymentData) : {}) },
+    createdAt: order.createdAt.toISOString(),
+    statusUpdatedAt: order.statusUpdatedAt.toISOString(),
+    items: order.items.map(item => ({ productId: item.productId, name: item.name, quantity: item.quantity, addons: item.addons, unitPrice: moneyNumber(item.unitPrice), total: moneyNumber(item.total) }))
+  };
+  if (includeCustomer) result.customer = decryptJson(order.customerData);
+  return result;
+}
+
+async function initializeAdminStore() {
+  hashCpf('database-encryption-key-check');
+  await prisma.$connect();
+  for (const product of defaultProducts) {
+    await prisma.product.upsert({
+      where: { id: product.id },
+      create: { ...product, price: product.price },
+      update: {}
+    });
   }
-  storeSalt = crypto.randomBytes(16);
-  encryptionKey = crypto.scryptSync(password, storeSalt, 32);
-  encryptStore();
+  const defaultGroup = { drinks: 'drinks', sides: 'sides', sauces: 'sauces' };
+  for (const [group, entries] of Object.entries(defaultAddons)) {
+    for (const addon of entries) {
+      await prisma.addon.upsert({ where: { name: addon.name }, create: { ...addon, group: defaultGroup[group] }, update: {} });
+    }
+  }
 }
 
 function validateEmployee(payload) {
@@ -96,128 +102,124 @@ function validateEmployee(payload) {
   return { data: parsed.data };
 }
 
-function syncCatalog() {
-  catalog.clear();
-  for (const product of menuProducts.values()) {
-    if (!product.active) continue;
-    catalog.set(product.id, getCatalogProduct(product.id));
+async function listEmployees() {
+  const employees = await prisma.employee.findMany({ include: { vacations: { orderBy: { start: 'asc' } }, timeEntries: { orderBy: { timestamp: 'asc' } }, documents: { orderBy: { uploadedAt: 'asc' } } }, orderBy: { createdAt: 'desc' } });
+  return employees.map(normalizeEmployee);
+}
+
+async function getEmployee(id) {
+  return prisma.employee.findUnique({ where: { id }, include: { vacations: true, timeEntries: true, documents: true } });
+}
+
+async function addEmployee(payload) {
+  const validation = validateEmployee(payload);
+  if (validation.error) return validation;
+  const { cpf, ...privateData } = validation.data;
+  try {
+    const employee = await prisma.employee.create({ data: { cpfHash: hashCpf(cpf), privateData: encryptJson({ ...privateData, cpf }) } });
+    return { data: { id: employee.id, ...privateData, cpf, createdAt: employee.createdAt.toISOString(), vacations: [], timeEntries: [], documents: [] } };
+  } catch (error) {
+    if (error.code === 'P2002') return { error: 'Já existe um colaborador com esse CPF.' };
+    throw error;
   }
-  addonPrices.clear();
-  for (const addon of Object.values(addonGroups).flat()) addonPrices.set(addon.name, addon.price);
 }
 
-function listEmployees() {
-  return [...employees.values()].map(({ timeEntries, documents: employeeDocuments, ...employee }) => ({ ...employee, timeEntries, documents: employeeDocuments }));
-}
-
-function getEmployee(id) {
-  return employees.get(id);
-}
-
-function addEmployee(payload) {
+async function updateEmployee(id, payload) {
   const validation = validateEmployee(payload);
   if (validation.error) return validation;
-  if (employees.size >= 200) return { error: 'Limite de 200 colaboradores atingido.', status: 409 };
-  if (listEmployees().some(employee => employee.cpf === validation.data.cpf)) return { error: 'Já existe um colaborador com esse CPF.' };
-  const employee = { id: crypto.randomUUID(), ...validation.data, createdAt: new Date().toISOString(), timeEntries: [], documents: [], vacations: [] };
-  employees.set(employee.id, employee);
-  encryptStore();
-  return { data: employee };
+  const { cpf, ...privateData } = validation.data;
+  try {
+    const employee = await prisma.employee.update({ where: { id }, data: { cpfHash: hashCpf(cpf), privateData: encryptJson({ ...privateData, cpf }) } });
+    return { data: { id: employee.id, ...privateData, cpf, createdAt: employee.createdAt.toISOString() } };
+  } catch (error) {
+    if (error.code === 'P2025') return { error: 'Colaborador não encontrado.', status: 404 };
+    if (error.code === 'P2002') return { error: 'Já existe um colaborador com esse CPF.' };
+    throw error;
+  }
 }
 
-function updateEmployee(id, payload) {
-  const employee = employees.get(id);
-  if (!employee) return { error: 'Colaborador não encontrado.', status: 404 };
-  const validation = validateEmployee(payload);
-  if (validation.error) return validation;
-  if (listEmployees().some(other => other.id !== id && other.cpf === validation.data.cpf)) return { error: 'Já existe um colaborador com esse CPF.' };
-  Object.assign(employee, validation.data);
-  encryptStore();
-  return { data: employee };
-}
-
-function scheduleVacation(id, payload) {
-  const employee = employees.get(id);
-  if (!employee) return { error: 'Colaborador não encontrado.', status: 404 };
+async function scheduleVacation(id, payload) {
   const parsed = z.object({ start: z.string().date(), end: z.string().date(), note: z.string().trim().max(160).optional().default('') }).safeParse(payload);
   if (!parsed.success) return { error: 'Informe as datas de início e fim das férias.' };
   if (parsed.data.end < parsed.data.start) return { error: 'O fim das férias precisa ser após o início.' };
-  employee.vacations ||= [];
-  employee.vacations.push({ id: crypto.randomUUID(), ...parsed.data, createdAt: new Date().toISOString() });
-  encryptStore();
-  return { data: employee.vacations.at(-1) };
+  try {
+    const vacation = await prisma.vacation.create({ data: { employeeId: id, start: new Date(`${parsed.data.start}T00:00:00.000Z`), end: new Date(`${parsed.data.end}T00:00:00.000Z`), note: parsed.data.note } });
+    return { data: { ...vacation, start: vacation.start.toISOString().slice(0, 10), end: vacation.end.toISOString().slice(0, 10), createdAt: vacation.createdAt.toISOString() } };
+  } catch (error) {
+    if (error.code === 'P2003') return { error: 'Colaborador não encontrado.', status: 404 };
+    throw error;
+  }
 }
 
-function listProducts() {
-  return [...menuProducts.values()].filter(product => product.active).map(product => publicProduct(product));
+async function listProducts() {
+  const [products, promotions] = await Promise.all([prisma.product.findMany({ where: { active: true }, orderBy: { id: 'asc' } }), prisma.promotion.findMany()]);
+  return products.map(product => normalizeProduct(product, promotions));
 }
 
-function getMenuSettings() {
-  const now = Date.now();
-  const allPromotions = promotions.map(promotion => {
-    const product = menuProducts.get(promotion.productId);
-    return {
-      ...promotion,
-      status: !product?.active ? 'hidden' : promotion.startsAt && Date.parse(promotion.startsAt) > now ? 'scheduled' : promotion.endsAt && Date.parse(promotion.endsAt) <= now ? 'ended' : 'active',
-      productName: product?.name || 'Produto removido',
-      basePrice: product?.price ?? 0,
-      salePrice: salePriceFor(product, promotion)
-    };
-  }).sort((first, second) => {
-    const rank = { active: 0, scheduled: 1, ended: 2, hidden: 3 };
-    return rank[first.status] - rank[second.status] || (first.startsAt || '').localeCompare(second.startsAt || '');
-  });
-  return { products: [...menuProducts.values()].map(product => publicProduct(product)), addons: structuredClone(addonGroups), promotions: allPromotions };
+async function getMenuSettings() {
+  const [products, addons, promotions] = await Promise.all([
+    prisma.product.findMany({ orderBy: { id: 'asc' } }),
+    prisma.addon.findMany({ orderBy: [{ group: 'asc' }, { name: 'asc' }] }),
+    prisma.promotion.findMany({ include: { product: true }, orderBy: [{ startsAt: 'asc' }, { createdAt: 'asc' }] })
+  ]);
+  const now = new Date();
+  const allPromotions = promotions.map(promotion => ({
+    id: promotion.id,
+    productId: promotion.productId,
+    percentage: promotion.percentage,
+    startsAt: promotion.startsAt?.toISOString() || null,
+    endsAt: promotion.endsAt?.toISOString() || null,
+    status: !promotion.product.active ? 'hidden' : promotion.startsAt && promotion.startsAt > now ? 'scheduled' : promotion.endsAt && promotion.endsAt <= now ? 'ended' : 'active',
+    productName: promotion.product.name,
+    basePrice: moneyNumber(promotion.product.price),
+    salePrice: salePrice(promotion.product, promotion)
+  }));
+  const addonsByGroup = { drinks: [], sides: [], sauces: [] };
+  for (const addon of addons) addonsByGroup[addon.group].push({ name: addon.name, price: moneyNumber(addon.price) });
+  return { products: products.map(product => normalizeProduct(product, promotions, now)), addons: addonsByGroup, promotions: allPromotions };
 }
 
-function salePriceFor(product, promotion) {
-  return product ? Math.round(product.price * (100 - promotion.percentage)) / 100 : null;
+async function listActivePromotions(timestamp = new Date()) {
+  const promotions = await prisma.promotion.findMany({ where: { product: { active: true } }, include: { product: true } });
+  return promotions.filter(promotion => promotionIsActive(promotion, timestamp)).map(promotion => normalizeProduct(promotion.product, [promotion], timestamp));
 }
 
-function promotionIsActive(promotion, timestamp = Date.now()) {
-  return (!promotion.startsAt || Date.parse(promotion.startsAt) <= timestamp) && (!promotion.endsAt || Date.parse(promotion.endsAt) > timestamp);
-}
-
-function listActivePromotions(timestamp = Date.now()) {
-  return promotions.filter(promotion => promotionIsActive(promotion, timestamp) && menuProducts.get(promotion.productId)?.active).map(promotion => publicProduct(menuProducts.get(promotion.productId), timestamp));
-}
-
-function publicProduct(product) {
-  const promotion = promotions.find(item => item.productId === product.id && promotionIsActive(item));
-  return { ...product, promotionPercentage: promotion?.percentage || 0, originalPrice: promotion ? product.price : null, salePrice: promotion ? salePriceFor(product, promotion) : null };
-}
-
-function getCatalogProduct(id, timestamp = Date.now()) {
-  const product = menuProducts.get(Number(id));
+async function getCatalogProduct(id, timestamp = new Date()) {
+  const product = await prisma.product.findUnique({ where: { id: Number(id) } });
   if (!product?.active) return null;
-  const promotion = promotions.find(item => item.productId === product.id && promotionIsActive(item, timestamp));
-  return { name: product.name, price: promotion ? salePriceFor(product, promotion) : product.price };
+  const promotions = await prisma.promotion.findMany({ where: { productId: product.id } });
+  const activePromotion = promotions.find(promotion => promotionIsActive(promotion, timestamp));
+  return { name: product.name, price: activePromotion ? salePrice(product, activePromotion) : moneyNumber(product.price) };
 }
 
-function saveProduct(id, payload) {
+async function getAddonPrice(name) {
+  const addon = await prisma.addon.findUnique({ where: { name } });
+  return addon ? moneyNumber(addon.price) : null;
+}
+
+async function saveProduct(id, payload) {
   const parsed = productSchema.safeParse(payload);
   if (!parsed.success) return { error: 'Confira nome, categoria, descrição, imagem e valor.', details: parsed.error.flatten() };
-  const productId = id ? Number(id) : Math.max(0, ...menuProducts.keys()) + 1;
-  if (id && !menuProducts.has(productId)) return { error: 'Produto não encontrado.', status: 404 };
-  const previous = menuProducts.get(productId) || {};
-  const product = { ...previous, id: productId, ...parsed.data, rating: previous.rating || '5.0', tag: previous.tag || 'Do cardápio' };
-  menuProducts.set(productId, product);
-  syncCatalog();
-  encryptStore();
-  return { data: product };
+  if (id) {
+    try {
+      const product = await prisma.product.update({ where: { id: Number(id) }, data: { ...parsed.data, price: parsed.data.price } });
+      return { data: normalizeProduct(product) };
+    } catch (error) {
+      if (error.code === 'P2025') return { error: 'Produto não encontrado.', status: 404 };
+      throw error;
+    }
+  }
+  const latest = await prisma.product.findFirst({ orderBy: { id: 'desc' }, select: { id: true } });
+  const product = await prisma.product.create({ data: { ...parsed.data, id: (latest?.id || 0) + 1 } });
+  return { data: normalizeProduct(product) };
 }
 
-function deleteProduct(id) {
-  const product = menuProducts.get(Number(id));
-  if (!product) return false;
-  menuProducts.delete(Number(id));
-  promotions = promotions.filter(promotion => promotion.productId !== Number(id));
-  syncCatalog();
-  encryptStore();
-  return true;
+async function deleteProduct(id) {
+  try { await prisma.product.delete({ where: { id: Number(id) } }); return true; }
+  catch (error) { if (error.code === 'P2025') return false; throw error; }
 }
 
-function savePromotion(payload) {
+async function savePromotion(payload) {
   const parsed = z.object({
     id: z.string().uuid().optional(),
     productId: z.number().int().positive(),
@@ -226,111 +228,117 @@ function savePromotion(payload) {
     endsAt: z.string().datetime().optional()
   }).safeParse(payload);
   if (!parsed.success) return { error: 'Confira produto, desconto e período da promoção.' };
-  const product = menuProducts.get(parsed.data.productId);
+  const product = await prisma.product.findUnique({ where: { id: parsed.data.productId } });
   if (!product || (!product.active && !parsed.data.id)) return { error: 'O produto precisa estar visível para criar uma promoção.' };
   if (parsed.data.startsAt && parsed.data.endsAt && Date.parse(parsed.data.endsAt) <= Date.parse(parsed.data.startsAt)) return { error: 'O fim da promoção precisa ser depois do início.' };
-  if (!parsed.data.id && promotions.length >= 200) return { error: 'Limite de 200 promoções atingido.' };
-  const id = parsed.data.id || crypto.randomUUID();
-  if (parsed.data.id && !promotions.some(promotion => promotion.id === id)) return { error: 'Promoção não encontrada.', status: 404 };
-  const nextStart = parsed.data.startsAt ? Date.parse(parsed.data.startsAt) : Number.NEGATIVE_INFINITY;
-  const nextEnd = parsed.data.endsAt ? Date.parse(parsed.data.endsAt) : Number.POSITIVE_INFINITY;
-  const overlaps = promotions.some(promotion => {
-    if (promotion.id === id || promotion.productId !== parsed.data.productId) return false;
-    const otherStart = promotion.startsAt ? Date.parse(promotion.startsAt) : Number.NEGATIVE_INFINITY;
-    const otherEnd = promotion.endsAt ? Date.parse(promotion.endsAt) : Number.POSITIVE_INFINITY;
-    return Math.max(nextStart, otherStart) < Math.min(nextEnd, otherEnd);
+  const start = parsed.data.startsAt ? new Date(parsed.data.startsAt) : null;
+  const end = parsed.data.endsAt ? new Date(parsed.data.endsAt) : null;
+  const existing = await prisma.promotion.findMany({ where: { productId: parsed.data.productId, ...(parsed.data.id ? { id: { not: parsed.data.id } } : {}) } });
+  const overlaps = existing.some(promotion => {
+    const otherStart = promotion.startsAt?.getTime() ?? Number.NEGATIVE_INFINITY;
+    const otherEnd = promotion.endsAt?.getTime() ?? Number.POSITIVE_INFINITY;
+    return Math.max(start?.getTime() ?? Number.NEGATIVE_INFINITY, otherStart) < Math.min(end?.getTime() ?? Number.POSITIVE_INFINITY, otherEnd);
   });
   if (overlaps) return { error: 'Este produto já possui uma promoção neste período.' };
-  const promotion = { ...parsed.data, id };
-  promotions = parsed.data.id ? promotions.map(item => item.id === id ? promotion : item) : [...promotions, promotion];
-  syncCatalog();
-  encryptStore();
-  return { data: promotion };
+  const data = { productId: parsed.data.productId, percentage: parsed.data.percentage, startsAt: start, endsAt: end };
+  try {
+    const promotion = parsed.data.id
+      ? await prisma.promotion.update({ where: { id: parsed.data.id }, data })
+      : await prisma.promotion.create({ data });
+    return { data: { ...promotion, startsAt: promotion.startsAt?.toISOString() || null, endsAt: promotion.endsAt?.toISOString() || null } };
+  } catch (error) {
+    if (error.code === 'P2025') return { error: 'Promoção não encontrada.', status: 404 };
+    throw error;
+  }
 }
 
-function deletePromotion(id) {
-  const remaining = promotions.filter(promotion => promotion.id !== id);
-  if (remaining.length === promotions.length) return false;
-  promotions = remaining;
-  syncCatalog();
-  encryptStore();
-  return true;
+async function deletePromotion(id) {
+  try { await prisma.promotion.delete({ where: { id } }); return true; }
+  catch (error) { if (error.code === 'P2025') return false; throw error; }
 }
 
-function saveAddon(payload) {
+async function getAddons() {
+  const addons = await prisma.addon.findMany({ orderBy: [{ group: 'asc' }, { name: 'asc' }] });
+  const groups = { drinks: [], sides: [], sauces: [] };
+  for (const addon of addons) groups[addon.group].push({ name: addon.name, price: moneyNumber(addon.price) });
+  return groups;
+}
+
+async function addAddon(payload) {
   const parsed = z.object({ group: z.enum(['drinks', 'sides', 'sauces']), name: z.string().trim().min(2).max(80), price: z.number().finite().min(0).max(10000) }).safeParse(payload);
   if (!parsed.success) return { error: 'Confira grupo, nome e valor do complemento.' };
-  if (Object.values(addonGroups).flat().some(addon => addon.name.toLowerCase() === parsed.data.name.toLowerCase())) return { error: 'Já existe um complemento com esse nome.' };
-  addonGroups[parsed.data.group].push({ name: parsed.data.name, price: parsed.data.price });
-  encryptStore();
-  return { data: parsed.data };
+  try {
+    const addon = await prisma.addon.create({ data: { ...parsed.data, price: parsed.data.price } });
+    return { data: { ...addon, price: moneyNumber(addon.price) } };
+  } catch (error) { if (error.code === 'P2002') return { error: 'Já existe um complemento com esse nome.' }; throw error; }
 }
 
-function deleteAddon(group, name) {
-  if (!addonGroups[group]) return false;
-  const index = addonGroups[group].findIndex(addon => addon.name === name);
-  if (index === -1) return false;
-  addonGroups[group].splice(index, 1);
-  addonPrices.delete(name);
-  encryptStore();
-  return true;
+async function deleteAddon(group, name) {
+  try { await prisma.addon.delete({ where: { name, group } }); return true; }
+  catch (error) { if (error.code === 'P2025') return false; throw error; }
 }
 
-function recordOrder(order) {
-  orders.unshift({ ...order, status: 'new', createdAt: new Date().toISOString(), statusUpdatedAt: new Date().toISOString() });
-  if (orders.length > 20000) orders.length = 20000;
-  encryptStore();
+async function recordOrder(order) {
+  return prisma.order.create({
+    data: {
+      id: order.orderId,
+      status: 'new',
+      subtotal: order.subtotal,
+      deliveryFee: order.deliveryFee,
+      total: order.total,
+      paymentMethod: order.payment.method,
+      paymentStatus: order.payment.status || 'pending',
+      paymentData: encryptJson(order.payment),
+      customerData: encryptJson(order.customer),
+      items: { create: order.items.map(item => ({ productId: item.productId, name: item.name, quantity: item.quantity, addons: item.addons, unitPrice: item.unitPrice, total: item.total })) }
+    }
+  });
 }
 
-function listOrders() {
-  return orders.map(order => ({ ...order }));
+async function listOrders() {
+  const orders = await prisma.order.findMany({ include: { items: true }, orderBy: { createdAt: 'desc' } });
+  return orders.map(order => normalizeOrder(order));
 }
 
-function updateOrderStatus(orderId, status) {
+async function updateOrderStatus(orderId, status) {
   if (!orderStatuses.has(status)) return { error: 'Etapa do pedido inválida.' };
-  const order = orders.find(item => item.orderId === orderId);
-  if (!order) return { error: 'Pedido não encontrado.', status: 404 };
-  order.status = status;
-  order.statusUpdatedAt = new Date().toISOString();
-  encryptStore();
-  return { data: { orderId, status, statusUpdatedAt: order.statusUpdatedAt } };
+  try {
+    const order = await prisma.order.update({ where: { id: orderId }, data: { status, statusUpdatedAt: new Date() } });
+    return { data: { orderId, status: order.status, statusUpdatedAt: order.statusUpdatedAt.toISOString() } };
+  } catch (error) { if (error.code === 'P2025') return { error: 'Pedido não encontrado.', status: 404 }; throw error; }
 }
 
-function getAddons() {
-  return structuredClone(addonGroups);
+async function listEmployees() {
+  const employees = await prisma.employee.findMany({ include: { vacations: { orderBy: { start: 'asc' } }, timeEntries: { orderBy: { timestamp: 'asc' } }, documents: { orderBy: { uploadedAt: 'asc' } } }, orderBy: { createdAt: 'desc' } });
+  return employees.map(normalizeEmployee);
 }
 
-function deleteEmployee(id) {
-  const employee = employees.get(id);
-  if (!employee) return false;
-  employee.documents.forEach(document => documents.delete(document.id));
-  employees.delete(id);
-  encryptStore();
-  return true;
+async function addTimeEntry(id) {
+  try {
+    const entry = await prisma.timeEntry.create({ data: { employeeId: id } });
+    return { ...entry, timestamp: entry.timestamp.toISOString() };
+  } catch (error) { if (error.code === 'P2003') return null; throw error; }
 }
 
-function addTimeEntry(id) {
-  const employee = employees.get(id);
-  if (!employee) return null;
-  const entry = { id: crypto.randomUUID(), timestamp: new Date().toISOString() };
-  employee.timeEntries.push(entry);
-  encryptStore();
-  return entry;
+async function addDocument(id, file) {
+  const count = await prisma.medicalDocument.count({ where: { employeeId: id } });
+  if (count >= 10) return { error: 'Limite de 10 documentos por colaborador atingido.' };
+  try {
+    const document = await prisma.medicalDocument.create({ data: { employeeId: id, name: file.originalname.replace(/[\\/]/g, '_').slice(0, 120), mimeType: file.mimetype, size: file.size, encryptedData: encryptBuffer(file.buffer) } });
+    const { encryptedData, ...metadata } = document;
+    return { data: { ...metadata, uploadedAt: document.uploadedAt.toISOString() } };
+  } catch (error) { if (error.code === 'P2003') return null; throw error; }
 }
 
-function addDocument(id, file) {
-  const employee = employees.get(id);
-  if (!employee) return null;
-  if (employee.documents.length >= 10) return { error: 'Limite de 10 documentos por colaborador atingido.' };
-  const record = { id: crypto.randomUUID(), name: file.originalname.replace(/[\\/]/g, '_').slice(0, 120), mimeType: file.mimetype, size: file.size, uploadedAt: new Date().toISOString() };
-  documents.set(record.id, { ...record, buffer: file.buffer });
-  employee.documents.push(record);
-  encryptStore();
-  return { data: record };
+async function getDocument(id) {
+  const document = await prisma.medicalDocument.findUnique({ where: { id } });
+  if (!document) return null;
+  return { ...document, buffer: decryptBuffer(document.encryptedData) };
 }
 
-function getDocument(id) {
-  return documents.get(id);
+async function deleteEmployee(id) {
+  try { await prisma.employee.delete({ where: { id } }); return true; }
+  catch (error) { if (error.code === 'P2025') return false; throw error; }
 }
 
 function startOfPeriod(period, now = new Date()) {
@@ -344,18 +352,21 @@ function startOfPeriod(period, now = new Date()) {
   return start;
 }
 
-function getDashboard(period = 'daily') {
+async function getDashboard(period = 'daily') {
   const allowedPeriods = new Set(['daily', 'weekly', 'monthly', 'yearly']);
   if (!allowedPeriods.has(period)) period = 'daily';
-  const from = startOfPeriod(period).getTime();
-  const periodOrders = orders.filter(order => Date.parse(order.createdAt) >= from);
+  const where = { createdAt: { gte: startOfPeriod(period) } };
+  const [summary, orders] = await Promise.all([
+    prisma.order.aggregate({ where, _count: { _all: true }, _sum: { total: true, deliveryFee: true } }),
+    prisma.order.findMany({ where, include: { items: true }, orderBy: { createdAt: 'desc' }, take: 100 })
+  ]);
   return {
     period,
-    orderCount: periodOrders.length,
-    revenue: periodOrders.reduce((total, order) => total + order.total, 0),
-    deliveryRevenue: periodOrders.reduce((total, order) => total + order.deliveryFee, 0),
-    orders: periodOrders.slice(0, 100).map(({ customer, ...order }) => order)
+    orderCount: summary._count._all,
+    revenue: moneyNumber(summary._sum.total || 0),
+    deliveryRevenue: moneyNumber(summary._sum.deliveryFee || 0),
+    orders: orders.map(order => normalizeOrder(order, false))
   };
 }
 
-module.exports = { addAddon: saveAddon, addDocument, addEmployee, addTimeEntry, deleteAddon, deleteEmployee, deleteProduct, deletePromotion, getAddons, getCatalogProduct, getDashboard, getDocument, getEmployee, getMenuSettings, initializeAdminStore, listActivePromotions, listEmployees, listOrders, listProducts, recordOrder, saveProduct, savePromotion, scheduleVacation, updateEmployee, updateOrderStatus };
+module.exports = { addAddon, addDocument, addEmployee, addTimeEntry, deleteAddon, deleteEmployee, deleteProduct, deletePromotion, getAddonPrice, getAddons, getCatalogProduct, getDashboard, getDocument, getEmployee, getMenuSettings, initializeAdminStore, listActivePromotions, listEmployees, listOrders, listProducts, recordOrder, saveProduct, savePromotion, scheduleVacation, updateEmployee, updateOrderStatus };

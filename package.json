@@ -5,12 +5,18 @@
   "description": "Sistema de pedidos e pagamento do anota.ai",
   "scripts": {
     "start": "node back/server.js",
-    "dev": "node --watch back/server.js"
+    "dev": "node --watch back/server.js",
+    "db:generate": "prisma generate",
+    "db:migrate": "prisma migrate dev",
+    "db:deploy": "prisma migrate deploy",
+    "db:import-legacy": "node back/scripts/import-legacy-admin-store.js",
+    "db:studio": "prisma studio"
   },
   "engines": {
     "node": ">=20"
   },
   "dependencies": {
+    "@prisma/client": "6.12.0",
     "cors": "^2.8.5",
     "dotenv": "^16.4.7",
     "express": "^4.21.2",
@@ -18,5 +24,8 @@
     "helmet": "^8.0.0",
     "multer": "^2.4.0",
     "zod": "^3.24.1"
+  },
+  "devDependencies": {
+    "prisma": "6.12.0"
   }
 }

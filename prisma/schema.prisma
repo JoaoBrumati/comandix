@@ -1,0 +1,139 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+enum AddonGroup {
+  drinks
+  sides
+  sauces
+}
+
+enum OrderStatus {
+  new
+  preparing
+  ready
+  out_for_delivery
+  completed
+  cancelled
+}
+
+model Employee {
+  id          String            @id @default(uuid()) @db.Uuid
+  cpfHash     String            @unique @db.Char(64)
+  privateData String            @db.Text
+  createdAt   DateTime          @default(now())
+  vacations   Vacation[]
+  timeEntries TimeEntry[]
+  documents   MedicalDocument[]
+
+  @@index([createdAt])
+}
+
+model Vacation {
+  id         String   @id @default(uuid()) @db.Uuid
+  employeeId String   @db.Uuid
+  start      DateTime @db.Date
+  end        DateTime @db.Date
+  note       String   @default("") @db.VarChar(160)
+  createdAt  DateTime @default(now())
+  employee   Employee @relation(fields: [employeeId], references: [id], onDelete: Cascade)
+
+  @@index([employeeId, start])
+}
+
+model TimeEntry {
+  id         String   @id @default(uuid()) @db.Uuid
+  employeeId String   @db.Uuid
+  timestamp  DateTime @default(now())
+  employee   Employee @relation(fields: [employeeId], references: [id], onDelete: Cascade)
+
+  @@index([employeeId, timestamp])
+  @@index([timestamp])
+}
+
+model MedicalDocument {
+  id            String   @id @default(uuid()) @db.Uuid
+  employeeId    String   @db.Uuid
+  name          String   @db.VarChar(120)
+  mimeType      String   @db.VarChar(80)
+  size          Int
+  encryptedData String   @db.Text
+  uploadedAt    DateTime @default(now())
+  employee      Employee @relation(fields: [employeeId], references: [id], onDelete: Cascade)
+
+  @@index([employeeId, uploadedAt])
+}
+
+model Product {
+  id          Int         @id @default(autoincrement())
+  name        String      @db.VarChar(100)
+  category    String      @db.VarChar(50)
+  description String      @db.VarChar(500)
+  price       Decimal     @db.Decimal(10, 2)
+  image       String      @db.VarChar(240)
+  rating      String      @default("5.0") @db.VarChar(10)
+  tag         String      @default("Do cardápio") @db.VarChar(40)
+  active      Boolean     @default(true)
+  promotions  Promotion[]
+
+  @@index([active, category])
+}
+
+model Addon {
+  id    String     @id @default(uuid()) @db.Uuid
+  name  String     @unique @db.VarChar(80)
+  group AddonGroup
+  price Decimal    @db.Decimal(10, 2)
+
+  @@index([group])
+}
+
+model Promotion {
+  id         String    @id @default(uuid()) @db.Uuid
+  productId  Int
+  percentage Int
+  startsAt   DateTime?
+  endsAt     DateTime?
+  createdAt  DateTime  @default(now())
+  product    Product   @relation(fields: [productId], references: [id], onDelete: Cascade)
+
+  @@index([productId, startsAt, endsAt])
+}
+
+model Order {
+  id              String      @id @default(uuid()) @db.Uuid
+  status          OrderStatus @default(new)
+  subtotal        Decimal     @db.Decimal(10, 2)
+  deliveryFee     Decimal     @db.Decimal(10, 2)
+  total           Decimal     @db.Decimal(10, 2)
+  paymentMethod   String      @db.VarChar(20)
+  paymentStatus   String      @default("pending") @db.VarChar(20)
+  paymentData     String?     @db.Text
+  customerData    String      @db.Text
+  createdAt       DateTime    @default(now())
+  statusUpdatedAt DateTime    @default(now())
+  items           OrderItem[]
+
+  @@index([createdAt])
+  @@index([status, createdAt])
+}
+
+model OrderItem {
+  id        String   @id @default(uuid()) @db.Uuid
+  orderId   String   @db.Uuid
+  productId Int
+  name      String   @db.VarChar(100)
+  quantity  Int
+  addons    String[]
+  unitPrice Decimal  @db.Decimal(10, 2)
+  total     Decimal  @db.Decimal(10, 2)
+  order     Order    @relation(fields: [orderId], references: [id], onDelete: Cascade)
+
+  @@index([orderId])
+  @@index([productId])
+}

@@ -7,7 +7,6 @@ const multer = require('multer');
 const cors = require('cors');
 const helmet = require('helmet');
 const rateLimit = require('express-rate-limit');
-const { addonPrices } = require('./src/catalog');
 const { lookupCep, quoteDelivery, publicAddress } = require('./src/delivery');
 const { orderSchema } = require('./src/validators');
 const adminStore = require('./src/admin');
@@ -20,6 +19,8 @@ const imageDir = path.join(__dirname, '..', 'img');
 const menuImageDir = path.join(imageDir, 'menu');
 const adminSessions = new Map();
 const sessionDuration = 8 * 60 * 60 * 1000;
+let databaseReady = false;
+let databaseFailure = null;
 const uploadDocument = multer({
   storage: multer.memoryStorage(),
   limits: { fileSize: 5 * 1024 * 1024, files: 1 },
@@ -36,24 +37,34 @@ app.use(helmet({ contentSecurityPolicy: false }));
 app.use(cors({ origin: clientOrigin, methods: ['GET', 'POST'], credentials: false }));
 app.use(express.json({ limit: '20kb', strict: true }));
 app.use(rateLimit({ windowMs: 15 * 60 * 1000, limit: 120, standardHeaders: true, legacyHeaders: false }));
+app.use(['/api/catalog', '/api/promotion', '/api/admin', '/api/orders'], (_request, response, next) => {
+  if (!databaseReady) return response.status(503).json({ error: 'PostgreSQL indisponível. Configure DATABASE_URL, aplique as migrations e tente novamente.' });
+  next();
+});
 
-function calculateOrder(items) {
-  return items.map(item => {
-    const product = adminStore.getCatalogProduct(item.productId);
-    if (!product) throw new Error(`Produto inválido: ${item.productId}`);
-    const addons = item.addons.map(addon => {
-      if (!addonPrices.has(addon)) throw new Error(`Adicional inválido: ${addon}`);
-      return { name: addon, price: addonPrices.get(addon) };
-    });
-    const unitPrice = product.price + addons.reduce((total, addon) => total + addon.price, 0);
-    return { productId: item.productId, name: product.name, quantity: item.quantity, addons: addons.map(addon => addon.name), unitPrice, total: unitPrice * item.quantity };
-  });
+function asyncRoute(handler) {
+  return (request, response, next) => Promise.resolve(handler(request, response, next)).catch(next);
 }
 
-app.get('/api/health', (_request, response) => response.json({ status: 'ok' }));
+async function calculateOrder(items) {
+  return Promise.all(items.map(async item => {
+    const product = adminStore.getCatalogProduct(item.productId);
+    const resolvedProduct = await product;
+    if (!resolvedProduct) throw new Error(`Produto inválido: ${item.productId}`);
+    const addons = await Promise.all(item.addons.map(async addon => {
+      const price = await adminStore.getAddonPrice(addon);
+      if (price == null) throw new Error(`Adicional inválido: ${addon}`);
+      return { name: addon, price };
+    }));
+    const unitPrice = resolvedProduct.price + addons.reduce((total, addon) => total + addon.price, 0);
+    return { productId: item.productId, name: resolvedProduct.name, quantity: item.quantity, addons: addons.map(addon => addon.name), unitPrice, total: unitPrice * item.quantity };
+  }));
+}
+
+app.get('/api/health', (_request, response) => response.status(databaseReady ? 200 : 503).json({ status: databaseReady ? 'ok' : 'degraded', database: databaseReady ? 'connected' : 'unavailable' }));
 app.get('/api/public-config', (_request, response) => response.json({ whatsapp: (process.env.STORE_WHATSAPP || '').replace(/\D/g, '') }));
-app.get('/api/catalog', (_request, response) => response.json({ products: adminStore.listProducts(), addons: adminStore.getAddons() }));
-app.get('/api/promotion', (_request, response) => response.json(adminStore.listActivePromotions()));
+app.get('/api/catalog', asyncRoute(async (_request, response) => response.json({ products: await adminStore.listProducts(), addons: await adminStore.getAddons() })));
+app.get('/api/promotion', asyncRoute(async (_request, response) => response.json(await adminStore.listActivePromotions())));
 
 function safePasswordMatch(candidate, expected) {
   const candidateHash = crypto.createHash('sha256').update(candidate).digest();
@@ -82,19 +93,19 @@ function requireSameOrigin(request, response, next) {
   next();
 }
 
-app.post('/api/admin/login', requireSameOrigin, (request, response) => {
+app.post('/api/admin/login', requireSameOrigin, asyncRoute(async (request, response) => {
   const expectedPassword = process.env.ADMIN_PASSWORD || '';
   if (expectedPassword.length < 12) return response.status(503).json({ error: 'Configure uma ADMIN_PASSWORD com pelo menos 12 caracteres no .env.' });
   const expectedUser = process.env.ADMIN_USER || 'admin';
   const username = typeof request.body?.username === 'string' ? request.body.username.trim() : '';
   const password = typeof request.body?.password === 'string' ? request.body.password : '';
   if (username.toLowerCase() !== expectedUser.toLowerCase() || !safePasswordMatch(password, expectedPassword)) return response.status(401).json({ error: 'Usuário ou senha administrativa incorretos.' });
-  try { adminStore.initializeAdminStore(expectedPassword); } catch { return response.status(503).json({ error: 'Não foi possível abrir o armazenamento administrativo. Confira a senha configurada.' }); }
+  try { await adminStore.initializeAdminStore(); } catch { return response.status(503).json({ error: 'Não foi possível abrir o PostgreSQL. Confira DATABASE_URL e as migrations.' }); }
   const sessionToken = crypto.randomBytes(32).toString('base64url');
   adminSessions.set(sessionToken, { expiresAt: Date.now() + sessionDuration });
   response.setHeader('Set-Cookie', `anotaai_admin=${encodeURIComponent(sessionToken)}; HttpOnly; SameSite=Strict; Path=/api/admin; Max-Age=28800${process.env.NODE_ENV === 'production' ? '; Secure' : ''}`);
   return response.json({ authenticated: true });
-});
+}));
 
 app.get('/api/admin/session', requireAdmin, (_request, response) => response.json({ authenticated: true }));
 app.delete('/api/admin/session', requireSameOrigin, (request, response) => {
@@ -106,76 +117,76 @@ app.delete('/api/admin/session', requireSameOrigin, (request, response) => {
 const adminApi = express.Router();
 adminApi.use(requireAdmin);
 adminApi.use(requireSameOrigin);
-adminApi.get('/dashboard', (request, response) => response.json(adminStore.getDashboard(request.query.period)));
-adminApi.get('/orders', (_request, response) => response.json(adminStore.listOrders()));
-adminApi.patch('/orders/:id/status', (request, response) => {
-  const result = adminStore.updateOrderStatus(request.params.id, request.body?.status);
+adminApi.get('/dashboard', asyncRoute(async (request, response) => response.json(await adminStore.getDashboard(request.query.period))));
+adminApi.get('/orders', asyncRoute(async (_request, response) => response.json(await adminStore.listOrders())));
+adminApi.patch('/orders/:id/status', asyncRoute(async (request, response) => {
+  const result = await adminStore.updateOrderStatus(request.params.id, request.body?.status);
   return result.error ? response.status(result.status || 400).json({ error: result.error }) : response.json(result.data);
-});
-adminApi.get('/employees', (_request, response) => response.json(adminStore.listEmployees()));
-adminApi.post('/employees', (request, response) => {
-  const result = adminStore.addEmployee(request.body);
+}));
+adminApi.get('/employees', asyncRoute(async (_request, response) => response.json(await adminStore.listEmployees())));
+adminApi.post('/employees', asyncRoute(async (request, response) => {
+  const result = await adminStore.addEmployee(request.body);
   if (result.error) return response.status(result.status || 400).json({ error: result.error, details: result.details });
   return response.status(201).json(result.data);
-});
-adminApi.patch('/employees/:id', (request, response) => {
-  const result = adminStore.updateEmployee(request.params.id, request.body);
+}));
+adminApi.patch('/employees/:id', asyncRoute(async (request, response) => {
+  const result = await adminStore.updateEmployee(request.params.id, request.body);
   if (result.error) return response.status(result.status || 400).json({ error: result.error, details: result.details });
   return response.json(result.data);
-});
-adminApi.post('/employees/:id/vacations', (request, response) => {
-  const result = adminStore.scheduleVacation(request.params.id, request.body);
+}));
+adminApi.post('/employees/:id/vacations', asyncRoute(async (request, response) => {
+  const result = await adminStore.scheduleVacation(request.params.id, request.body);
   if (result.error) return response.status(result.status || 400).json({ error: result.error });
   return response.status(201).json(result.data);
-});
-adminApi.delete('/employees/:id', (request, response) => adminStore.deleteEmployee(request.params.id) ? response.status(204).end() : response.status(404).json({ error: 'Colaborador não encontrado.' }));
-adminApi.post('/employees/:id/timeclock', (request, response) => {
-  const entry = adminStore.addTimeEntry(request.params.id);
+}));
+adminApi.delete('/employees/:id', asyncRoute(async (request, response) => await adminStore.deleteEmployee(request.params.id) ? response.status(204).end() : response.status(404).json({ error: 'Colaborador não encontrado.' })));
+adminApi.post('/employees/:id/timeclock', asyncRoute(async (request, response) => {
+  const entry = await adminStore.addTimeEntry(request.params.id);
   return entry ? response.status(201).json(entry) : response.status(404).json({ error: 'Colaborador não encontrado.' });
-});
-adminApi.post('/employees/:id/documents', uploadDocument.single('document'), (request, response) => {
+}));
+adminApi.post('/employees/:id/documents', uploadDocument.single('document'), asyncRoute(async (request, response) => {
   const file = request.file;
   if (!file) return response.status(400).json({ error: 'Envie um PDF, JPG ou PNG de até 5 MB.' });
   const isPdf = file.mimetype === 'application/pdf' && file.buffer.subarray(0, 4).toString() === '%PDF';
   const isJpeg = file.mimetype === 'image/jpeg' && file.buffer[0] === 0xff && file.buffer[1] === 0xd8 && file.buffer[2] === 0xff;
   const isPng = file.mimetype === 'image/png' && file.buffer.subarray(0, 8).equals(Buffer.from([137, 80, 78, 71, 13, 10, 26, 10]));
   if (!isPdf && !isJpeg && !isPng) return response.status(400).json({ error: 'O conteúdo do arquivo não corresponde a PDF, JPG ou PNG.' });
-  const result = adminStore.addDocument(request.params.id, file);
+  const result = await adminStore.addDocument(request.params.id, file);
   if (!result) return response.status(404).json({ error: 'Colaborador não encontrado.' });
   if (result.error) return response.status(409).json({ error: result.error });
   return response.status(201).json(result.data);
-});
-adminApi.get('/employees/:id/documents/:documentId', (request, response) => {
-  const document = adminStore.getDocument(request.params.documentId);
-  if (!document || !adminStore.getEmployee(request.params.id)?.documents.some(item => item.id === document.id)) return response.status(404).json({ error: 'Documento não encontrado.' });
+}));
+adminApi.get('/employees/:id/documents/:documentId', asyncRoute(async (request, response) => {
+  const document = await adminStore.getDocument(request.params.documentId);
+  if (!document || document.employeeId !== request.params.id) return response.status(404).json({ error: 'Documento não encontrado.' });
   response.setHeader('Content-Type', document.mimeType);
   response.setHeader('Content-Disposition', `attachment; filename="${encodeURIComponent(document.name)}"`);
   response.setHeader('X-Content-Type-Options', 'nosniff');
   return response.send(document.buffer);
-});
-adminApi.get('/menu', (_request, response) => response.json(adminStore.getMenuSettings()));
-adminApi.post('/menu/products', (request, response) => {
-  const result = adminStore.saveProduct(null, request.body);
+}));
+adminApi.get('/menu', asyncRoute(async (_request, response) => response.json(await adminStore.getMenuSettings())));
+adminApi.post('/menu/products', asyncRoute(async (request, response) => {
+  const result = await adminStore.saveProduct(null, request.body);
   if (result.error) return response.status(result.status || 400).json({ error: result.error, details: result.details });
   return response.status(201).json(result.data);
-});
-adminApi.patch('/menu/products/:id', (request, response) => {
-  const result = adminStore.saveProduct(request.params.id, request.body);
+}));
+adminApi.patch('/menu/products/:id', asyncRoute(async (request, response) => {
+  const result = await adminStore.saveProduct(request.params.id, request.body);
   if (result.error) return response.status(result.status || 400).json({ error: result.error, details: result.details });
   return response.json(result.data);
-});
-adminApi.delete('/menu/products/:id', (request, response) => adminStore.deleteProduct(request.params.id) ? response.status(204).end() : response.status(404).json({ error: 'Produto não encontrado.' }));
-adminApi.post('/menu/promotions', (request, response) => {
-  const result = adminStore.savePromotion(request.body);
+}));
+adminApi.delete('/menu/products/:id', asyncRoute(async (request, response) => await adminStore.deleteProduct(request.params.id) ? response.status(204).end() : response.status(404).json({ error: 'Produto não encontrado.' })));
+adminApi.post('/menu/promotions', asyncRoute(async (request, response) => {
+  const result = await adminStore.savePromotion(request.body);
   if (result.error) return response.status(result.status || 400).json({ error: result.error });
   return response.status(201).json(result.data);
-});
-adminApi.patch('/menu/promotions/:id', (request, response) => {
-  const result = adminStore.savePromotion({ ...request.body, id: request.params.id });
+}));
+adminApi.patch('/menu/promotions/:id', asyncRoute(async (request, response) => {
+  const result = await adminStore.savePromotion({ ...request.body, id: request.params.id });
   if (result.error) return response.status(result.status || 400).json({ error: result.error });
   return response.json(result.data);
-});
-adminApi.delete('/menu/promotions/:id', (request, response) => adminStore.deletePromotion(request.params.id) ? response.status(204).end() : response.status(404).json({ error: 'Promoção não encontrada.' }));
+}));
+adminApi.delete('/menu/promotions/:id', asyncRoute(async (request, response) => await adminStore.deletePromotion(request.params.id) ? response.status(204).end() : response.status(404).json({ error: 'Promoção não encontrada.' })));
 adminApi.post('/menu/images', uploadMenuImage.single('image'), (request, response) => {
   const file = request.file;
   if (!file) return response.status(400).json({ error: 'Envie uma imagem JPG, PNG ou WEBP de até 5 MB.' });
@@ -191,14 +202,14 @@ adminApi.post('/menu/images', uploadMenuImage.single('image'), (request, respons
   require('fs').writeFileSync(path.join(menuImageDir, fileName), file.buffer, { flag: 'wx' });
   return response.status(201).json({ image: `/img/menu/${fileName}` });
 });
-adminApi.post('/menu/addons', (request, response) => {
-  const result = adminStore.addAddon(request.body);
+adminApi.post('/menu/addons', asyncRoute(async (request, response) => {
+  const result = await adminStore.addAddon(request.body);
   return result.error ? response.status(400).json({ error: result.error }) : response.status(201).json(result.data);
-});
-adminApi.delete('/menu/addons/:group/:name', (request, response) => {
+}));
+adminApi.delete('/menu/addons/:group/:name', asyncRoute(async (request, response) => {
   const name = decodeURIComponent(request.params.name);
-  return adminStore.deleteAddon(request.params.group, name) ? response.status(204).end() : response.status(404).json({ error: 'Complemento não encontrado.' });
-});
+  return await adminStore.deleteAddon(request.params.group, name) ? response.status(204).end() : response.status(404).json({ error: 'Complemento não encontrado.' });
+}));
 app.use('/api/admin', adminApi);
 
 app.get('/api/cep/:cep', async (request, response) => {
@@ -220,13 +231,13 @@ app.post('/api/delivery/quote', async (request, response) => {
   }
 });
 
-app.post('/api/orders', async (request, response) => {
+app.post('/api/orders', asyncRoute(async (request, response) => {
   const parsed = orderSchema.safeParse(request.body);
   if (!parsed.success) return response.status(400).json({ error: 'Dados do pedido inválidos.', details: parsed.error.flatten() });
 
   try {
     const delivery = await quoteDelivery(parsed.data.customer.cep);
-    const items = calculateOrder(parsed.data.items);
+    const items = await calculateOrder(parsed.data.items);
     const subtotal = items.reduce((total, item) => total + item.total, 0);
     const deliveryFee = delivery.fee;
     const total = subtotal + deliveryFee;
@@ -236,13 +247,13 @@ app.post('/api/orders', async (request, response) => {
       : { method: parsed.data.payment.method, status: 'pending' };
     const { name, phone, street, number, neighborhood, city, state, complement, reference } = parsed.data.customer;
     const customer = { name, phone, address: [street, number, complement, neighborhood, `${city}/${state}`].filter(Boolean).join(', '), reference };
-    adminStore.recordOrder({ orderId, items, subtotal, deliveryFee, total, payment, customer });
+    await adminStore.recordOrder({ orderId, items, subtotal, deliveryFee, total, payment, customer });
 
     return response.status(201).json({ orderId, status: 'created', items, subtotal, deliveryFee, distanceKm: delivery.distanceKm, total, payment });
   } catch (error) {
     return response.status(error.status || 400).json({ error: error.message });
   }
-});
+}));
 
 app.use('/img', express.static(imageDir, { maxAge: '7d', fallthrough: false }));
 app.use(express.static(frontDir, { extensions: ['html'], maxAge: process.env.NODE_ENV === 'production' ? '1d' : 0 }));
@@ -254,9 +265,7 @@ app.use((error, _request, response, _next) => {
   return response.status(500).json({ error: 'Erro interno do servidor.' });
 });
 
-if ((process.env.ADMIN_PASSWORD || '').length >= 12) {
-  try { adminStore.initializeAdminStore(process.env.ADMIN_PASSWORD); }
-  catch { console.error('Não foi possível abrir o armazenamento administrativo cifrado. Verifique ADMIN_PASSWORD.'); }
-}
-
 app.listen(port, () => console.log(`anota.ai rodando em http://localhost:${port}`));
+adminStore.initializeAdminStore()
+  .then(() => { databaseReady = true; console.log('PostgreSQL conectado; Prisma pronto.'); })
+  .catch(error => { databaseFailure = error; console.error(`PostgreSQL/criptografia indisponível (${error.code || error.name}). Confira DATABASE_URL, DATA_ENCRYPTION_KEY e aplique as migrations.`); });
