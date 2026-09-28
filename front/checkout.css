@@ -1,0 +1,227 @@
+.payment-dialog {
+  width: min(100%, 650px);
+}
+
+.payment-content {
+  padding: 30px 34px 28px;
+}
+
+.checkout-contact-grid {
+  display: grid;
+  grid-template-columns: minmax(0, 1.4fr) minmax(190px, .8fr);
+  gap: 14px;
+}
+
+.checkout-contact-grid > label,
+.address-fields > label,
+.address-two-columns > label,
+.cep-field > label {
+  display: block;
+  min-width: 0;
+  color: #4e4e48;
+  font-size: 11px;
+}
+
+#delivery-step input:not([type="radio"]) {
+  display: block;
+  box-sizing: border-box;
+  width: 100%;
+  min-width: 0;
+  min-height: 42px;
+  border: 1px solid var(--line);
+  border-radius: 7px;
+  outline: none;
+  background: var(--paper);
+  color: var(--ink);
+  padding: 10px 12px;
+  margin-top: 6px;
+  font-size: 12px;
+}
+
+#delivery-step input:not([type="radio"]):focus {
+  border-color: var(--coral);
+  background: var(--white);
+}
+
+#delivery-step input[readonly] {
+  color: #65655e;
+  background: #f2f2ed;
+}
+
+.delivery-address-block {
+  border-top: 1px solid var(--line);
+  margin-top: 19px;
+  padding-top: 17px;
+}
+
+.address-block-heading {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  gap: 12px;
+  margin-bottom: 13px;
+}
+
+.address-block-heading strong {
+  font: 600 14px 'Space Grotesk', sans-serif;
+}
+
+.address-block-heading span {
+  color: var(--muted);
+  font-size: 10px;
+}
+
+.cep-field > div {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 9px;
+}
+
+.cep-field button {
+  min-height: 42px;
+  margin-top: 6px;
+  padding: 0 15px;
+  border-radius: 7px;
+  background: var(--ink);
+  color: var(--white);
+  font-size: 11px;
+  font-weight: 700;
+}
+
+.address-feedback {
+  min-height: 15px;
+  margin: 7px 0 10px;
+  color: var(--muted);
+  font-size: 10px;
+  line-height: 1.4;
+}
+
+.address-feedback:empty {
+  min-height: 0;
+  margin: 0;
+}
+
+.address-fields {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 11px 13px;
+}
+
+.address-fields > label:first-child,
+.address-fields > .address-two-columns,
+.address-fields > .residence-choice {
+  grid-column: 1 / -1;
+}
+
+.address-two-columns {
+  display: grid;
+  grid-template-columns: minmax(110px, .7fr) minmax(0, 1.3fr);
+  gap: 13px;
+}
+
+.address-two-columns + .address-two-columns {
+  grid-template-columns: minmax(0, 1.3fr) minmax(70px, .7fr);
+}
+
+.residence-choice {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 8px;
+  min-width: 0;
+  border: 0;
+  padding: 0;
+  margin: 0;
+}
+
+.residence-choice legend {
+  padding: 0;
+  margin-bottom: 7px;
+  color: #4e4e48;
+  font-size: 11px;
+}
+
+.residence-choice label {
+  min-width: 0;
+  cursor: pointer;
+}
+
+.residence-choice input {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  opacity: 0;
+}
+
+.residence-choice span {
+  display: block;
+  border: 1px solid var(--line);
+  border-radius: 7px;
+  padding: 10px 12px;
+  background: var(--white);
+  color: #66665f;
+  font-size: 11px;
+  text-align: center;
+}
+
+.residence-choice input:checked + span {
+  border-color: var(--coral);
+  background: #fff5f1;
+  color: var(--ink);
+}
+
+.delivery-breakdown {
+  margin-top: 17px;
+  padding: 14px 0;
+  gap: 10px;
+}
+
+#calculate-delivery {
+  background: var(--lime);
+  color: var(--ink);
+}
+
+#continue-payment:disabled {
+  display: none;
+}
+
+#calculate-delivery:disabled {
+  cursor: not-allowed;
+  opacity: .5;
+}
+
+@media (max-width: 600px) {
+  .payment-dialog {
+    width: 100%;
+  }
+
+  .payment-content {
+    padding: 26px 20px 22px;
+  }
+
+  .checkout-contact-grid {
+    grid-template-columns: minmax(0, 1fr);
+    gap: 11px;
+  }
+
+  .address-block-heading {
+    align-items: flex-start;
+    flex-direction: column;
+    gap: 4px;
+  }
+
+  .address-fields {
+    grid-template-columns: minmax(0, 1fr);
+    gap: 10px;
+  }
+
+  .address-fields > label,
+  .address-fields > label:first-child,
+  .address-fields > .address-two-columns,
+  .address-fields > .residence-choice {
+    grid-column: 1;
+  }
+
+  .address-two-columns {
+    gap: 9px;
+  }
+}

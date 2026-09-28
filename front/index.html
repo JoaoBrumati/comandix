@@ -1,0 +1,211 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <meta name="theme-color" content="#f7f7f4" />
+  <title>anota.ai — Seu pedido, do seu jeito</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600;700&family=Space+Grotesk:wght@500;600;700&display=swap" rel="stylesheet" />
+  <link rel="stylesheet" href="styles.css" />
+  <link rel="stylesheet" href="checkout.css" />
+  <link rel="stylesheet" href="admin.css" />
+</head>
+<body>
+  <div class="app-shell">
+    <aside class="sidebar" aria-label="Navegação principal">
+      <a class="brand" href="#inicio" data-page="home" aria-label="anota.ai início">
+        <span class="brand-mark">a</span>
+        <span>anota<span class="brand-dot">.</span>ai</span>
+      </a>
+
+      <nav class="main-nav">
+        <p class="nav-label">Menu</p>
+        <a href="#inicio" class="nav-item active" data-page="home"><span class="nav-icon">⌂</span>Início</a>
+        <a href="#pedidos" class="nav-item" data-page="orders"><span class="nav-icon">▤</span>Pedidos solicitados</a>
+        <a href="#carrinho" class="nav-item" data-page="cart"><span class="nav-icon">◷</span>Meu carrinho <span class="nav-count" id="nav-count">2</span></a>
+        <a href="#admin" class="nav-item admin-nav-item" data-page="admin"><span class="nav-icon">▦</span>Administração</a>
+        <nav class="admin-subnav" id="admin-subnav" aria-label="Seções administrativas" hidden>
+          <button class="active" data-admin-section="dashboard"><span aria-hidden="true">▥</span>Dashboard</button>
+          <button data-admin-section="orders"><span aria-hidden="true">▤</span>Kanban de pedidos</button>
+          <button data-admin-section="employees"><span class="admin-icon-person" aria-hidden="true"><i></i></span>Colaboradores</button>
+          <button data-admin-section="menu"><span class="admin-icon-menu" aria-hidden="true"><i></i><i></i><i></i></span>Cardápio</button>
+        </nav>
+      </nav>
+
+      <div class="sidebar-bottom">
+        <a class="support-card" id="support-whatsapp" href="#" target="_blank" rel="noopener noreferrer">
+          <span class="support-icon">?</span>
+          <div><strong>Precisa de ajuda?</strong><span>Fale com a gente</span></div>
+          <span class="support-arrow">↗</span>
+        </a>
+      </div>
+    </aside>
+
+    <main class="main-content">
+      <header class="topbar compact-topbar">
+        <button class="mobile-menu" id="mobile-menu" aria-label="Abrir menu">☰</button>
+        <a class="brand compact-brand" href="#inicio" data-page="home"><span class="brand-mark">a</span><span>anota<span class="brand-dot">.</span>ai</span></a>
+      </header>
+
+      <div class="page-view active" id="home-page">
+        <section class="content-section">
+          <div class="section-heading"><div><span class="section-kicker">PARA COMEÇAR</span><h1 class="menu-title">O que vamos comer</h1></div><div class="search"><span>⌕</span><input id="search-input" type="search" placeholder="Buscar no cardápio" aria-label="Buscar no cardápio" /></div></div>
+          <div class="category-row" id="category-row">
+            <button class="category active" data-category="Todos"><span>✦</span>Todos</button><button class="category" data-category="Hambúrgueres"><span>🍔</span>Hambúrgueres</button><button class="category" data-category="Pizzas"><span>🍕</span>Pizzas</button><button class="category" data-category="Saudável"><span>🥗</span>Saudável</button><button class="category" data-category="Doces"><span>🍰</span>Doces</button><button class="category" data-category="Bebidas"><span>🥤</span>Bebidas</button>
+          </div>
+          <section class="daily-promotion" id="daily-promotion" hidden></section>
+          <div class="food-grid" id="food-grid"></div>
+        </section>
+      </div>
+
+      <div class="page-view" id="orders-page">
+        <section class="simple-page-header"><span class="section-kicker">HISTÓRICO</span><h1>Pedidos solicitados</h1><p>Acompanhe seus pedidos recentes e peça de novo seus favoritos.</p></section>
+        <section class="orders-list" id="orders-list"></section>
+      </div>
+
+      <div class="page-view" id="cart-page">
+        <section class="simple-page-header"><span class="section-kicker">SEU PEDIDO</span><h1>Meu carrinho</h1><p>Revise os itens e finalize quando estiver tudo certo.</p></section>
+        <div class="cart-layout"><section class="cart-items" id="cart-items"></section><aside class="checkout-card" id="checkout-card"></aside></div>
+      </div>
+
+      <div class="page-view" id="admin-page">
+        <section class="admin-login-view" id="admin-login-view">
+          <span class="section-kicker">ÁREA RESTRITA</span>
+          <h1>Administração</h1>
+          <p>Acesse com a senha administrativa configurada no servidor.</p>
+          <form id="admin-login-form"><label>Usuário<input id="admin-username" autocomplete="username" value="admin" required /></label><label>Senha do administrador<input id="admin-password" type="password" autocomplete="current-password" required /></label><button type="submit">Entrar no painel <span>→</span></button></form>
+          <p class="admin-feedback" id="admin-login-feedback" role="alert"></p>
+        </section>
+        <section class="admin-dashboard-view" id="admin-dashboard-view" hidden>
+          <div class="admin-page-heading"><div><span class="section-kicker">GESTÃO DA LOJA</span><h1>Painel administrativo</h1></div><button id="admin-logout" class="admin-logout">Sair</button></div>
+          <section class="admin-panel active" id="admin-dashboard-panel">
+            <div class="dashboard-controls"><div class="admin-periods" aria-label="Período do dashboard"><button class="active" data-period="daily">Diário</button><button data-period="weekly">Semanal</button><button data-period="monthly">Mensal</button><button data-period="yearly">Anual</button></div><label>Exibir<select id="dashboard-filter"><option value="all">Todos</option><option value="orders">Pedidos</option><option value="revenue">Faturamento</option></select></label></div>
+            <div class="admin-metrics" id="admin-metrics"></div>
+            <section class="admin-data-section" id="admin-orders-section"><div class="admin-section-heading"><div><span class="section-kicker">VENDAS</span><h2>Pedidos do período</h2></div></div><div class="orders-summary" id="admin-orders-summary"></div></section>
+          </section>
+          <section class="admin-panel" id="admin-orders-panel">
+            <div class="admin-section-heading"><div><span class="section-kicker">FLUXO DA COZINHA</span><h2>Kanban de pedidos</h2></div><button class="admin-secondary" id="refresh-kanban">Atualizar</button></div>
+            <div class="orders-kanban" id="orders-kanban"></div>
+          </section>
+          <section class="admin-panel" id="admin-employees-panel">
+            <div class="admin-section-heading"><div><span class="section-kicker">CADASTRO E ROTINA</span><h2>Colaboradores</h2></div><button class="admin-primary" id="new-employee-button">+ Novo colaborador</button></div>
+            <form class="employee-form" id="employee-form" hidden>
+              <input id="employee-id" type="hidden" />
+              <label>Nome completo<input id="employee-name" autocomplete="name" required /></label><label>CPF<input id="employee-cpf" inputmode="numeric" maxlength="14" required /></label>
+              <label>Endereço<input id="employee-address" autocomplete="street-address" required /></label><label>Salário (R$)<input id="employee-salary" type="number" min="0" step="0.01" required /></label>
+              <label>Cargo<input id="employee-role" required /></label>
+              <div class="employee-form-actions"><button type="button" class="admin-secondary" id="cancel-employee">Cancelar</button><button type="submit" class="admin-primary">Salvar colaborador</button></div>
+            </form>
+            <div class="employee-tools"><label class="admin-select-label">Registrar ponto<select id="timeclock-employee"><option value="">Selecione um colaborador</option></select></label><button id="register-timeclock" class="admin-secondary">Registrar horário atual</button></div>
+            <div class="employee-list" id="employee-list"></div>
+          </section>
+          <section class="admin-panel" id="admin-menu-panel">
+            <div class="admin-section-heading"><div><span class="section-kicker">PRODUTOS E ADICIONAIS</span><h2>Configurações do cardápio</h2></div><button class="admin-primary" id="new-product-button">+ Novo produto</button></div>
+            <section class="promotion-manager">
+              <div class="admin-section-heading"><div><span class="section-kicker">VITRINE</span><h2>Promoções ativas e agendadas</h2></div><button class="admin-primary" id="add-promotion-button">+ Nova promoção</button></div>
+              <div class="promotion-list" id="promotion-list"></div>
+              <form class="promotion-form" id="promotion-form" hidden>
+                <input id="promotion-id" type="hidden" />
+                <label>Produto<select id="promotion-product" required><option value="">Selecione um produto</option></select></label>
+                <label>Desconto (%)<input id="promotion-percent" type="number" min="1" max="90" step="1" placeholder="Ex.: 15" required /></label>
+                <label>Começa em<input id="promotion-start" type="datetime-local" /></label>
+                <label>Termina em<input id="promotion-end" type="datetime-local" /></label>
+                <div class="promotion-preview" id="promotion-preview">Selecione produto e porcentagem</div>
+                <div class="promotion-form-actions"><button class="admin-secondary" id="cancel-promotion" type="button">Cancelar</button><button class="admin-primary" type="submit">Salvar promoção</button></div>
+              </form>
+            </section>
+            <form class="employee-form menu-form" id="menu-form" hidden>
+              <input id="menu-product-id" type="hidden" />
+              <input id="menu-product-active" type="hidden" value="true" />
+              <label>Nome<input id="menu-product-name" required /></label><label>Categoria<input id="menu-product-category" placeholder="Hambúrgueres, Bebidas..." required /></label>
+              <label>Preço (R$)<input id="menu-product-price" type="number" min="0" step="0.01" required /></label><label>Imagem do produto<input id="menu-product-image" type="file" accept="image/jpeg,image/png,image/webp" /></label>
+              <label class="menu-description-field">Descrição<textarea id="menu-product-description" rows="3" required></textarea></label>
+              <div class="employee-form-actions"><button type="button" class="admin-secondary" id="cancel-product">Cancelar</button><button type="submit" class="admin-primary">Salvar produto</button></div>
+            </form>
+            <div class="menu-product-list" id="menu-product-list"></div>
+            <section class="admin-data-section addon-settings"><div class="admin-section-heading"><div><span class="section-kicker">OPÇÕES DE PERSONALIZAÇÃO</span><h2>Complementos</h2></div></div><form id="addon-form" class="addon-form"><label>Nome do complemento<input id="addon-name" required /></label><label>Grupo<select id="addon-group"><option value="drinks">Bebidas</option><option value="sides">Acompanhamentos</option><option value="sauces">Molhos</option></select></label><label>Preço (R$)<input id="addon-price" type="number" min="0" step="0.01" required /></label><button class="admin-primary" type="submit">Adicionar complemento</button></form><div id="addon-list" class="addon-list"></div></section>
+          </section>
+        </section>
+      </div>
+
+      <div class="product-overlay" id="product-overlay" aria-hidden="true">
+        <section class="product-detail" role="dialog" aria-modal="true" aria-labelledby="detail-name">
+          <button class="detail-close" id="detail-close" aria-label="Fechar detalhes">×</button>
+          <div class="detail-image-wrap"><img id="detail-image" src="" alt="" /></div>
+          <div class="detail-content">
+            <span class="food-tag" id="detail-tag"></span>
+            <h2 id="detail-name"></h2>
+            <p id="detail-description"></p>
+            <strong class="detail-price" id="detail-price"></strong>
+            <div class="option-group">
+              <div class="option-heading"><strong>Bebidas</strong><span>Opcional · escolha até 1</span></div>
+              <div class="option-list" id="drink-options"></div>
+            </div>
+            <div class="option-group">
+              <div class="option-heading"><strong>Acompanhamentos</strong><span>Escolha até 2</span></div>
+              <div class="option-list" id="side-options"></div>
+            </div>
+            <div class="option-group">
+              <div class="option-heading"><strong>Molhos</strong><span>Escolha até 2</span></div>
+              <div class="option-list" id="sauce-options"></div>
+            </div>
+            <div class="detail-footer"><div class="detail-quantity"><button id="detail-decrease" aria-label="Diminuir quantidade">−</button><span id="detail-quantity">1</span><button id="detail-increase" aria-label="Aumentar quantidade">+</button></div><button class="detail-add" id="detail-add">Adicionar <span id="detail-total"></span></button></div>
+          </div>
+        </section>
+      </div>
+
+      <div class="payment-overlay" id="payment-overlay" aria-hidden="true">
+        <section class="payment-dialog" role="dialog" aria-modal="true" aria-labelledby="payment-title">
+          <button class="detail-close" id="payment-close" aria-label="Fechar pagamento">×</button>
+          <div class="payment-content">
+            <span class="section-kicker" id="checkout-step-label">ETAPA 1 DE 2 · ENTREGA</span>
+            <h2 id="payment-title">Seus dados de entrega</h2>
+            <p class="payment-intro" id="checkout-step-intro">Preencha seus dados para receber o pedido.</p>
+            <section class="checkout-step active" id="delivery-step" aria-label="Dados de entrega">
+              <div class="checkout-contact-grid">
+                <label>Nome completo<input id="customer-name" autocomplete="name" placeholder="Seu nome e sobrenome" required /></label>
+                <label>Telefone<input id="customer-phone" type="tel" autocomplete="tel" inputmode="tel" placeholder="(11) 99999-9999" required /></label>
+              </div>
+              <div class="delivery-address-block">
+                <div class="address-block-heading"><strong>Endereço de entrega</strong><span>Informe o CEP para localizar o endereço.</span></div>
+              <div class="cep-field"><label for="delivery-cep">CEP</label><div><input id="delivery-cep" autocomplete="postal-code" inputmode="numeric" maxlength="9" placeholder="00000-000" required /><button id="lookup-cep" type="button">Buscar CEP</button></div></div>
+              <p class="address-feedback" id="address-feedback" role="status"></p>
+              <div class="address-fields">
+                <label>Endereço<input id="delivery-street" autocomplete="address-line1" placeholder="Preenchido pelo CEP" readonly /></label>
+                <div class="address-two-columns"><label>Número<input id="delivery-number" inputmode="numeric" autocomplete="address-line2" placeholder="Nº da casa" required /></label><label>Bairro<input id="delivery-neighborhood" placeholder="Preenchido pelo CEP" readonly /></label></div>
+                <div class="address-two-columns"><label>Cidade<input id="delivery-city" placeholder="Preenchido pelo CEP" readonly /></label><label>UF<input id="delivery-state" placeholder="UF" readonly /></label></div>
+                <fieldset class="residence-choice"><legend>Tipo de residência</legend><label><input type="radio" name="residence-type" value="Casa" checked /><span>Casa</span></label><label><input type="radio" name="residence-type" value="Apartamento" /><span>Apartamento</span></label></fieldset>
+                <label>Complemento (opcional)<input id="delivery-complement" autocomplete="address-line2" placeholder="Bloco, apartamento, andar" /></label>
+                <label>Ponto de referência (opcional)<input id="delivery-reference" placeholder="Ex.: portão azul, perto da praça" /></label>
+              </div>
+              </div>
+              <div class="delivery-breakdown"><div><span>Taxa de entrega</span><strong id="delivery-fee-value">Consultar</strong></div><div><span>Distância aproximada</span><strong id="delivery-distance-value">Consultar</strong></div><div><span>Subtotal dos itens</span><strong id="delivery-subtotal-value">R$ 0,00</strong></div><div class="delivery-total"><span>Total com entrega</span><strong id="delivery-total-value">Consultar</strong></div></div>
+              <button class="confirm-payment" id="calculate-delivery">Consultar taxa de entrega <span>⌕</span></button>
+              <button class="confirm-payment" id="continue-payment">Continuar pagamento <span>→</span></button>
+            </section>
+            <section class="checkout-step" id="payment-step" aria-label="Forma de pagamento">
+              <button class="back-to-delivery" id="back-to-delivery">← Voltar para entrega</button>
+            <div class="payment-methods" id="payment-methods">
+              <button class="payment-method active" data-method="pix"><span class="payment-method-icon">◈</span><strong>PIX</strong><small>Pagamento instantâneo</small></button>
+              <button class="payment-method" data-method="card"><span class="payment-method-icon">▣</span><strong>Cartão</strong><small>Crédito ou débito</small></button>
+              <button class="payment-method" data-method="cash"><span class="payment-method-icon">◇</span><strong>Dinheiro</strong><small>Pagar na entrega</small></button>
+            </div>
+            <div class="payment-panel active" data-panel="pix"><div class="pix-box"><span>PIX</span><strong>Você receberá o código após confirmar.</strong><small>O código é gerado pelo servidor e expira em 30 minutos.</small></div></div>
+            <div class="payment-panel" data-panel="card"><label>Nome no cartão<input id="card-name" autocomplete="cc-name" placeholder="Como está no cartão" /></label><label>Últimos 4 dígitos<input id="card-last4" inputmode="numeric" maxlength="4" placeholder="0000" /></label><small class="secure-note">O cartão deve ser tokenizado pelo gateway. Nenhum número completo é enviado ou armazenado por este site.</small></div>
+            <div class="payment-panel" data-panel="cash"><label>Troco para (opcional)<input id="cash-change" inputmode="decimal" placeholder="Ex.: 50,00" /></label><small class="secure-note">Informe o valor apenas se precisar de troco.</small></div>
+            <div class="payment-summary"><div><span>Itens</span><strong id="payment-subtotal">R$ 0,00</strong></div><div><span>Taxa de entrega</span><strong id="payment-delivery-fee">Consultar</strong></div><div class="payment-grand-total"><span>Total do pedido</span><strong id="payment-total">Consultar</strong></div></div>
+            <button class="confirm-payment" id="confirm-payment">Confirmar pedido <span>→</span></button>
+            </section>
+            <p class="payment-error" id="payment-error" role="alert"></p>
+          </div>
+        </section>
+      </div>
+    </main>
+  </div>
+  <div class="toast" id="toast" role="status"></div>
+  <script src="app.js"></script>
+  <script src="admin.js"></script>
+</body>
+</html>

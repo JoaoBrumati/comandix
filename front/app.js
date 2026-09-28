@@ -1,0 +1,321 @@
+const imageBase = window.location.protocol === 'file:' ? '../img/' : '/img/';
+let foods = [
+  { id: 1, name: 'Smash clássico', category: 'Hambúrgueres', description: 'Pão brioche, carne, queijo e molho da casa.', price: 28.9, rating: '4.9', tag: 'Mais pedido', image: 'Qual-e-o-Lanche-Mais-Popular-no-Brasil.webp' },
+  { id: 2, name: 'Pizza da casa', category: 'Pizzas', description: 'Queijo cremoso, tomate fresco e manjericão.', price: 42.0, rating: '4.8', tag: 'Favorita', image: 'WhatsApp Image 2026-09-24 at 12.02.10.jpeg' },
+  { id: 3, name: 'Bowl tropical', category: 'Saudável', description: 'Arroz, salada crocante, frango e molho cítrico.', price: 31.5, rating: '4.7', tag: 'Leve', image: 'WhatsApp Image 2026-09-24 at 12.02.11 (1).jpeg' },
+  { id: 4, name: 'Brownie quentinho', category: 'Doces', description: 'Chocolate intenso, casquinha crocante e calda.', price: 16.9, rating: '4.9', tag: 'Novo', image: 'WhatsApp Image 2026-09-24 at 12.02.11 (2).jpeg' },
+  { id: 5, name: 'Batata crocante', category: 'Hambúrgueres', description: 'Porção dourada com páprica e molho especial.', price: 18.5, rating: '4.8', tag: 'Para dividir', image: 'WhatsApp Image 2026-09-24 at 12.02.11.jpeg' },
+  { id: 6, name: 'Torta de frutas', category: 'Doces', description: 'Massa amanteigada, creme e frutas da estação.', price: 19.9, rating: '4.6', tag: 'Do dia', image: 'WhatsApp Image 2026-09-24 at 12.02.12 (1).jpeg' },
+  { id: 7, name: 'Limonada fresca', category: 'Bebidas', description: 'Limão espremido, água com gás e hortelã.', price: 9.9, rating: '4.9', tag: 'Refrescante', image: 'WhatsApp Image 2026-09-24 at 12.02.12.jpeg' },
+  { id: 8, name: 'Combo completo', category: 'Hambúrgueres', description: 'Smash, batata e bebida para matar a fome.', price: 39.9, rating: '5.0', tag: 'Combo', image: 'WhatsApp Image 2026-09-24 at 12.02.10 (1).jpeg' }
+];
+let addonGroups = {
+  drinks: [{ name: 'Coca-Cola 350ml', price: 7 }, { name: 'Guaraná 350ml', price: 7 }, { name: 'Água mineral', price: 4 }],
+  sides: [{ name: 'Batata frita', price: 8 }, { name: 'Anéis de cebola', price: 10 }, { name: 'Salada fresca', price: 6 }],
+  sauces: [{ name: 'Maionese da casa', price: 2 }, { name: 'Molho barbecue', price: 2 }, { name: 'Ketchup', price: 1 }]
+};
+let cart = [
+  { ...foods[0], quantity: 1 },
+  { ...foods[6], quantity: 1 }
+];
+const orders = [
+  { ...foods[1], date: 'Hoje, 12:48', status: 'A caminho', total: 54.9 },
+  { ...foods[2], date: '18 set, 19:32', status: 'Entregue', total: 31.5 },
+  { ...foods[4], date: '12 set, 13:15', status: 'Entregue', total: 47.4 }
+];
+
+const money = value => `R$ ${value.toFixed(2).replace('.', ',')}`;
+const foodImage = food => food.image?.startsWith('/') ? food.image : `${imageBase}${food.image}`;
+const escapeText = value => String(value ?? '').replace(/[&<>"']/g, character => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[character]);
+const foodGrid = document.querySelector('#food-grid');
+const searchInput = document.querySelector('#search-input');
+const navCount = document.querySelector('#nav-count');
+let detailProduct = null;
+let detailQuantity = 1;
+let deliveryQuote = null;
+let lastQueriedCep = '';
+let lastQuoteKey = '';
+let quoteTimer;
+
+function renderFoods() {
+  const activeCategory = document.querySelector('.category.active')?.dataset.category || 'Todos';
+  const query = searchInput.value.toLowerCase().trim();
+  const filtered = foods.filter(food => (activeCategory === 'Todos' || food.category === activeCategory) && `${food.name} ${food.description}`.toLowerCase().includes(query));
+  foodGrid.innerHTML = filtered.length ? filtered.map(food => `
+    <article class="food-card" data-product="${food.id}">
+      <div class="food-image"><img src="${escapeText(foodImage(food))}" alt="${escapeText(food.name)}" /><span class="food-tag ${food.promotionPercentage ? 'promotion-tag' : ''}">${food.promotionPercentage ? `Promoção · ${food.promotionPercentage}%` : escapeText(food.tag || food.category)}</span><button class="add-button" data-add="${food.id}" aria-label="Adicionar ${escapeText(food.name)}">+</button></div>
+      <div class="food-info"><h3>${escapeText(food.name)}</h3><p>${escapeText(food.description)}</p><div class="food-bottom"><span class="price">${food.promotionPercentage ? `<s>${money(food.originalPrice)}</s> ` : ''}${money(food.price)}</span><span class="rating"><b>★</b>${escapeText(food.rating || '5.0')}</span></div></div>
+    </article>`).join('') : '<div class="empty">Nenhum sabor encontrado. Tente outra busca.</div>';
+}
+function renderCategories() {
+  const categories = [...new Set(foods.map(food => food.category))];
+  const icons = { Hambúrgueres: '🍔', Pizzas: '🍕', Saudável: '🥗', Doces: '🍰', Bebidas: '🥤', Acompanhamentos: '🍟' };
+  const row = document.querySelector('#category-row');
+  row.innerHTML = `<button class="category active" data-category="Todos"><span>✦</span>Todos</button>${categories.map(category => `<button class="category" data-category="${escapeText(category)}"><span>${icons[category] || '✦'}</span>${escapeText(category)}</button>`).join('')}`;
+}
+function renderAddonOptions(elementId, options, type) {
+  document.querySelector(`#${elementId}`).innerHTML = options.map(option => `<label class="option-item"><input type="checkbox" name="${type}" value="${option.name}" data-price="${option.price}" /><span>${option.name}</span><small>+ ${money(option.price)}</small></label>`).join('');
+}
+function getDetailTotal() {
+  const extras = [...document.querySelectorAll('.product-detail input:checked')].reduce((sum, input) => sum + Number(input.dataset.price), 0);
+  return (detailProduct.price + extras) * detailQuantity;
+}
+function updateDetailTotal() {
+  document.querySelector('#detail-quantity').textContent = detailQuantity;
+  document.querySelector('#detail-total').textContent = money(getDetailTotal());
+}
+function openProduct(id) {
+  detailProduct = foods.find(food => food.id === id);
+  detailQuantity = 1;
+  document.querySelector('#detail-image').src = foodImage(detailProduct);
+  document.querySelector('#detail-image').alt = detailProduct.name;
+  document.querySelector('#detail-tag').textContent = detailProduct.promotionPercentage ? `Promoção · ${detailProduct.promotionPercentage}%` : detailProduct.tag;
+  document.querySelector('#detail-tag').classList.toggle('promotion-tag', Boolean(detailProduct.promotionPercentage));
+  document.querySelector('#detail-name').textContent = detailProduct.name;
+  document.querySelector('#detail-description').textContent = `${detailProduct.description} Tudo preparado na hora, com ingredientes selecionados e muito sabor em cada mordida.`;
+  document.querySelector('#detail-price').innerHTML = detailProduct.promotionPercentage ? `<s>${money(detailProduct.originalPrice)}</s> ${money(detailProduct.price)}` : money(detailProduct.price);
+  renderAddonOptions('drink-options', addonGroups.drinks, 'drink');
+  renderAddonOptions('side-options', addonGroups.sides, 'side');
+  renderAddonOptions('sauce-options', addonGroups.sauces, 'sauce');
+  document.querySelector('#product-overlay').classList.add('open');
+  document.querySelector('#product-overlay').setAttribute('aria-hidden', 'false');
+  updateDetailTotal();
+}
+function closeProduct() {
+  document.querySelector('#product-overlay').classList.remove('open');
+  document.querySelector('#product-overlay').setAttribute('aria-hidden', 'true');
+}
+function addConfiguredProduct() {
+  const addons = [...document.querySelectorAll('.product-detail input:checked')].map(input => input.value);
+  const unitPrice = getDetailTotal() / detailQuantity;
+  cart.push({ ...detailProduct, id: Date.now(), originalId: detailProduct.id, price: unitPrice, quantity: detailQuantity, addons });
+  renderCart();
+  closeProduct();
+  showToast(`${detailProduct.name} foi adicionado com seus adicionais`);
+}
+function renderOrders() {
+  document.querySelector('#orders-list').innerHTML = orders.map(order => `<article class="order-row"><img class="order-thumb" src="${foodImage(order)}" alt="${order.name}" /><div class="order-info"><strong>${order.name}</strong><p>${order.category} · ${money(order.total)}</p><div class="order-meta">Pedido realizado em ${order.date}</div><button class="repeat-button" data-repeat="${order.id}">Pedir de novo</button></div><div class="order-status"><span class="status">${order.status}</span><div class="order-date">${order.date}</div></div></article>`).join('');
+}
+function renderCart() {
+  navCount.textContent = cart.reduce((sum, item) => sum + item.quantity, 0);
+  const cartItems = document.querySelector('#cart-items');
+  if (!cart.length) { cartItems.innerHTML = '<div class="empty">Seu carrinho está esperando por um pedido gostoso.</div>'; } else {
+    cartItems.innerHTML = cart.map(item => `<article class="cart-row"><img src="${foodImage(item)}" alt="${item.name}" /><div class="cart-detail"><h3>${item.name}</h3><p>${money(item.price)} cada${item.addons?.length ? ` · ${item.addons.join(', ')}` : ''}</p></div><div class="qty"><button data-decrease="${item.id}" aria-label="Diminuir quantidade">−</button><span>${item.quantity}</span><button data-increase="${item.id}" aria-label="Aumentar quantidade">+</button></div><strong>${money(item.price * item.quantity)}</strong><button class="remove" data-remove="${item.id}" aria-label="Remover ${item.name}">×</button></article>`).join('');
+  }
+  const subtotal = cart.reduce((sum, item) => sum + item.price * item.quantity, 0);
+  const deliveryLabel = deliveryQuote ? money(deliveryQuote.fee) : 'Consultar';
+  const totalLabel = deliveryQuote ? money(subtotal + deliveryQuote.fee) : 'Consultar';
+  document.querySelector('#checkout-card').innerHTML = `<h2>Resumo do pedido</h2><div class="summary-line"><span>Subtotal</span><span>${money(subtotal)}</span></div><div class="summary-line"><span>Taxa de entrega</span><span>${deliveryLabel}</span></div><div class="summary-line total"><span>Total</span><span>${totalLabel}</span></div>${cart.length ? '<button class="checkout-button" id="checkout-button">Continuar para pagamento <span>→</span></button>' : ''}`;
+}
+function updateDeliveryPricing() {
+  const subtotal = cart.reduce((sum, item) => sum + item.price * item.quantity, 0);
+  const fee = deliveryQuote?.fee;
+  const feeLabel = fee == null ? 'Consultar' : money(fee);
+  document.querySelector('#delivery-fee-value').textContent = feeLabel;
+  document.querySelector('#delivery-distance-value').textContent = deliveryQuote ? `${deliveryQuote.distanceKm} km` : 'Consultar';
+  document.querySelector('#delivery-subtotal-value').textContent = money(subtotal);
+  document.querySelector('#delivery-total-value').textContent = fee == null ? 'Consultar' : money(subtotal + fee);
+  document.querySelector('#payment-subtotal').textContent = money(subtotal);
+  document.querySelector('#payment-delivery-fee').textContent = feeLabel;
+  document.querySelector('#payment-total').textContent = fee == null ? 'Consultar' : money(subtotal + fee);
+  document.querySelector('#continue-payment').disabled = fee == null;
+  document.querySelector('#calculate-delivery').hidden = fee != null;
+  document.querySelector('#calculate-delivery').disabled = fee != null || !addressIsReady();
+  renderCart();
+}
+function openPayment() {
+  if (!cart.length) return showToast('Adicione um item antes de finalizar');
+  document.querySelector('#payment-error').textContent = '';
+  updateDeliveryPricing();
+  showCheckoutStep('delivery');
+  document.querySelector('#payment-overlay').classList.add('open');
+  document.querySelector('#payment-overlay').setAttribute('aria-hidden', 'false');
+}
+function showCheckoutStep(step) {
+  const delivery = step === 'delivery';
+  document.querySelector('#delivery-step').classList.toggle('active', delivery);
+  document.querySelector('#payment-step').classList.toggle('active', !delivery);
+  document.querySelector('#checkout-step-label').textContent = delivery ? 'ETAPA 1 DE 2 · ENTREGA' : 'ETAPA 2 DE 2 · PAGAMENTO';
+  document.querySelector('#payment-title').textContent = delivery ? 'Seus dados de entrega' : 'Como você quer pagar?';
+  document.querySelector('#checkout-step-intro').textContent = delivery ? 'Preencha seus dados para receber o pedido.' : 'Escolha uma forma segura para concluir seu pedido.';
+  document.querySelector('#payment-error').textContent = '';
+}
+function continueToPayment() {
+  const name = document.querySelector('#customer-name').value.trim();
+  const phone = document.querySelector('#customer-phone').value.replace(/\D/g, '');
+  const error = document.querySelector('#payment-error');
+  if (name.split(/\s+/).length < 2 || name.length < 5) { error.textContent = 'Informe seu nome completo.'; return; }
+  if (phone.length < 10 || phone.length > 11) { error.textContent = 'Informe um telefone válido com DDD.'; return; }
+  if (!deliveryQuote) { error.textContent = 'Consulte a taxa de entrega antes de continuar.'; return; }
+  showCheckoutStep('payment');
+}
+async function lookupDeliveryCep() {
+  const input = document.querySelector('#delivery-cep');
+  const cep = input.value.replace(/\D/g, '');
+  const feedback = document.querySelector('#address-feedback');
+  if (!/^\d{8}$/.test(cep)) { feedback.textContent = 'Digite um CEP com 8 números.'; return; }
+  if (lastQueriedCep === cep) return;
+  lastQueriedCep = cep;
+  feedback.textContent = 'Buscando endereço...';
+  try {
+    const response = await fetch(`/api/cep/${cep}`);
+    const result = await response.json();
+    if (!response.ok) throw new Error(result.error || 'Não foi possível localizar o CEP.');
+    document.querySelector('#delivery-street').value = result.street;
+    document.querySelector('#delivery-neighborhood').value = result.neighborhood;
+    document.querySelector('#delivery-city').value = result.city;
+    document.querySelector('#delivery-state').value = result.state;
+    feedback.textContent = 'Endereço encontrado. Confira os dados e informe o número.';
+    scheduleDeliveryQuote();
+  } catch (error) {
+    lastQueriedCep = '';
+    feedback.textContent = error instanceof TypeError ? 'Não foi possível consultar o CEP. Confira se o servidor está ativo.' : error.message;
+  }
+}
+function addressIsReady() {
+  const phone = document.querySelector('#customer-phone').value.replace(/\D/g, '');
+  return document.querySelector('#customer-name').value.trim().split(/\s+/).length >= 2
+    && phone.length >= 10 && phone.length <= 11
+    && /^\d{8}$/.test(document.querySelector('#delivery-cep').value.replace(/\D/g, ''))
+    && document.querySelector('#delivery-street').value.trim().length >= 2
+    && document.querySelector('#delivery-number').value.trim().length > 0
+    && document.querySelector('#delivery-neighborhood').value.trim().length >= 2
+    && document.querySelector('#delivery-city').value.trim().length >= 2
+    && document.querySelector('#delivery-state').value.trim().length === 2;
+}
+function scheduleDeliveryQuote() {
+  clearTimeout(quoteTimer);
+  const ready = addressIsReady();
+  document.querySelector('#calculate-delivery').disabled = !ready || deliveryQuote != null;
+  if (!ready) return;
+  quoteTimer = setTimeout(() => requestDeliveryQuote(false), 650);
+}
+async function requestDeliveryQuote(force = true) {
+  const feedback = document.querySelector('#address-feedback');
+  if (!addressIsReady()) {
+    feedback.textContent = 'Preencha nome, telefone, CEP e número para consultar a entrega.';
+    return;
+  }
+  const cep = document.querySelector('#delivery-cep').value.replace(/\D/g, '');
+  const quoteKey = `${cep}:${document.querySelector('#delivery-number').value.trim()}`;
+  if (!force && lastQuoteKey === quoteKey) return;
+  lastQuoteKey = quoteKey;
+  feedback.textContent = 'Calculando a taxa pela distância...';
+  document.querySelector('#calculate-delivery').disabled = true;
+  try {
+    const response = await fetch('/api/delivery/quote', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ cep }) });
+    const responseText = await response.text();
+    let result = null;
+    try { result = responseText ? JSON.parse(responseText) : null; } catch { result = null; }
+    if (!result) throw new Error(`Não foi possível calcular a entrega (HTTP ${response.status}).`);
+    if (!response.ok) throw new Error(result.error || 'Não foi possível calcular a entrega.');
+    deliveryQuote = result;
+    updateDeliveryPricing();
+    feedback.textContent = `Entrega a ${result.distanceKm} km da loja. Taxa calculada.`;
+  } catch (error) {
+    deliveryQuote = null;
+    updateDeliveryPricing();
+    feedback.textContent = error instanceof TypeError ? 'Não foi possível conectar ao servidor para calcular a entrega.' : error.message;
+  } finally {
+    document.querySelector('#calculate-delivery').disabled = false;
+  }
+}
+function handleCepInput() {
+  const input = document.querySelector('#delivery-cep');
+  const digits = input.value.replace(/\D/g, '').slice(0, 8);
+  input.value = digits.length > 5 ? `${digits.slice(0, 5)}-${digits.slice(5)}` : digits;
+  if (digits !== lastQueriedCep) {
+    lastQueriedCep = '';
+    lastQuoteKey = '';
+    deliveryQuote = null;
+    ['#delivery-street', '#delivery-neighborhood', '#delivery-city', '#delivery-state'].forEach(selector => { document.querySelector(selector).value = ''; });
+    document.querySelector('#address-feedback').textContent = '';
+    updateDeliveryPricing();
+  }
+  if (digits.length === 8) lookupDeliveryCep();
+}
+function closePayment() {
+  document.querySelector('#payment-overlay').classList.remove('open');
+  document.querySelector('#payment-overlay').setAttribute('aria-hidden', 'true');
+}
+function paymentPayload(method) {
+  const payload = { customer: { name: document.querySelector('#customer-name').value.trim(), phone: document.querySelector('#customer-phone').value.replace(/\D/g, ''), cep: document.querySelector('#delivery-cep').value.replace(/\D/g, ''), street: document.querySelector('#delivery-street').value.trim(), number: document.querySelector('#delivery-number').value.trim(), neighborhood: document.querySelector('#delivery-neighborhood').value.trim(), city: document.querySelector('#delivery-city').value.trim(), state: document.querySelector('#delivery-state').value.trim().toUpperCase(), residenceType: document.querySelector('[name="residence-type"]:checked').value, complement: document.querySelector('#delivery-complement').value.trim(), reference: document.querySelector('#delivery-reference').value.trim() }, items: cart.map(item => ({ productId: item.originalId || item.id, quantity: item.quantity, addons: item.addons || [] })) };
+  if (method === 'pix') payload.payment = { method: 'pix' };
+  if (method === 'cash') payload.payment = { method: 'cash', changeFor: Number((document.querySelector('#cash-change').value || '').replace(',', '.')) || undefined };
+  if (method === 'card') { const last4 = document.querySelector('#card-last4').value.trim(); if (!/^\d{4}$/.test(last4)) throw new Error('Informe os 4 últimos dígitos do cartão.'); payload.payment = { method: 'card', cardToken: `browser-token-${last4}-${Date.now()}` }; }
+  return payload;
+}
+async function confirmPayment() {
+  const method = document.querySelector('.payment-method.active').dataset.method;
+  const error = document.querySelector('#payment-error');
+  error.textContent = '';
+  try {
+    const response = await fetch('/api/orders', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(paymentPayload(method)) });
+    const responseText = await response.text();
+    let result = null;
+    try { result = responseText ? JSON.parse(responseText) : null; } catch { result = null; }
+    if (!result) throw new Error(`Servidor indisponível ou resposta inválida (HTTP ${response.status}). Inicie o projeto com npm start.`);
+    if (!response.ok) throw new Error(result.error || 'Não foi possível criar o pedido.');
+    cart = [];
+    renderCart();
+    closePayment();
+    showToast(method === 'pix' ? `Pedido criado. PIX: ${result.payment.copyPaste}` : 'Pedido criado com sucesso!');
+  } catch (requestError) { error.textContent = requestError instanceof TypeError ? 'Não foi possível conectar ao servidor. Confira se o projeto está rodando com npm start.' : requestError.message || 'Não foi possível concluir o pagamento.'; }
+}
+function showToast(message) { const toast = document.querySelector('#toast'); toast.textContent = message; toast.classList.add('show'); setTimeout(() => toast.classList.remove('show'), 2200); }
+function addToCart(id) { const food = foods.find(item => item.id === id); const existing = cart.find(item => item.id === id); existing ? existing.quantity++ : cart.push({ ...food, quantity: 1 }); renderCart(); showToast(`${food.name} foi adicionado ao carrinho`); }
+
+async function loadStorefrontCatalog() {
+  try {
+    const response = await fetch('/api/catalog');
+    if (!response.ok) return;
+    const data = await response.json();
+    if (Array.isArray(data.products) && data.products.length) foods = data.products.map(product => ({ ...product, originalPrice: product.price, price: product.salePrice ?? product.price }));
+    if (data.addons) addonGroups = data.addons;
+    renderCategories();
+    renderFoods();
+    renderCart();
+    renderDailyPromotion();
+  } catch { renderDailyPromotion(); }
+}
+async function renderDailyPromotion() {
+  const container = document.querySelector('#daily-promotion');
+  try {
+    const response = await fetch('/api/promotion');
+    const promotions = await response.json();
+    if (!Array.isArray(promotions) || !promotions.length) { container.hidden = true; return; }
+    container.innerHTML = promotions.map(promotion => `<article class="daily-promotion-item"><img src="${escapeText(foodImage(promotion))}" alt="${escapeText(promotion.name)}" /><div><span>PROMOÇÃO DO DIA · ${promotion.promotionPercentage}% OFF</span><h2>${escapeText(promotion.name)}</h2><p>${escapeText(promotion.description)}</p><strong><s>${money(promotion.price)}</s> ${money(promotion.salePrice)}</strong></div><button class="promotion-order" data-promotion-add="${promotion.id}">Ver promoção →</button></article>`).join('');
+    container.hidden = false;
+  } catch { container.hidden = true; }
+}
+window.refreshStorefrontCatalog = loadStorefrontCatalog;
+
+foodGrid.addEventListener('click', event => { const button = event.target.closest('[data-add]'); if (button) { addToCart(Number(button.dataset.add)); return; } const card = event.target.closest('[data-product]'); if (card) openProduct(Number(card.dataset.product)); });
+document.querySelector('#daily-promotion').addEventListener('click', event => { const button = event.target.closest('[data-promotion-add]'); if (button) openProduct(Number(button.dataset.promotionAdd)); });
+searchInput.addEventListener('input', renderFoods);
+document.querySelector('#category-row').addEventListener('click', event => { const button = event.target.closest('.category'); if (!button) return; document.querySelectorAll('.category').forEach(item => item.classList.remove('active')); button.classList.add('active'); renderFoods(); });
+document.querySelector('#mobile-menu').addEventListener('click', () => document.querySelector('.sidebar').classList.toggle('open'));
+document.querySelector('.sidebar').addEventListener('click', event => { if (event.target.closest('.nav-item')) document.querySelector('.sidebar').classList.remove('open'); });
+document.querySelector('#orders-list').addEventListener('click', event => { const button = event.target.closest('[data-repeat]'); if (button) addToCart(Number(button.dataset.repeat)); });
+document.querySelector('#cart-items').addEventListener('click', event => { const button = event.target.closest('button'); if (!button) return; const id = Number(button.dataset.increase || button.dataset.decrease || button.dataset.remove); const item = cart.find(entry => entry.id === id); if (button.dataset.increase) item.quantity++; if (button.dataset.decrease) item.quantity > 1 ? item.quantity-- : cart = cart.filter(entry => entry.id !== id); if (button.dataset.remove) cart = cart.filter(entry => entry.id !== id); renderCart(); });
+document.querySelector('#checkout-card').addEventListener('click', event => { if (event.target.closest('#checkout-button')) openPayment(); });
+document.querySelector('#detail-close').addEventListener('click', closeProduct);
+document.querySelector('#product-overlay').addEventListener('click', event => { if (event.target.id === 'product-overlay') closeProduct(); });
+document.querySelector('#detail-increase').addEventListener('click', () => { detailQuantity++; updateDetailTotal(); });
+document.querySelector('#detail-decrease').addEventListener('click', () => { if (detailQuantity > 1) detailQuantity--; updateDetailTotal(); });
+document.querySelector('#detail-add').addEventListener('click', addConfiguredProduct);
+document.querySelector('#payment-close').addEventListener('click', closePayment);
+document.querySelector('#payment-overlay').addEventListener('click', event => { if (event.target.id === 'payment-overlay') closePayment(); });
+document.querySelector('#payment-methods').addEventListener('click', event => { const method = event.target.closest('[data-method]'); if (!method) return; document.querySelectorAll('.payment-method').forEach(item => item.classList.toggle('active', item === method)); document.querySelectorAll('.payment-panel').forEach(panel => panel.classList.toggle('active', panel.dataset.panel === method.dataset.method)); });
+document.querySelector('#confirm-payment').addEventListener('click', confirmPayment);
+document.querySelector('#continue-payment').addEventListener('click', continueToPayment);
+document.querySelector('#lookup-cep').addEventListener('click', lookupDeliveryCep);
+document.querySelector('#delivery-cep').addEventListener('input', handleCepInput);
+document.querySelector('#calculate-delivery').addEventListener('click', () => requestDeliveryQuote(true));
+['#customer-name', '#customer-phone', '#delivery-number'].forEach(selector => document.querySelector(selector).addEventListener('input', scheduleDeliveryQuote));
+document.querySelector('#back-to-delivery').addEventListener('click', () => showCheckoutStep('delivery'));
+document.querySelector('#product-overlay').addEventListener('change', event => { if (!event.target.matches('input')) return; if (event.target.name === 'drink') document.querySelectorAll('input[name="drink"]').forEach(input => { if (input !== event.target) input.checked = false; }); if (event.target.name === 'side' && document.querySelectorAll('input[name="side"]:checked').length > 2) event.target.checked = false; if (event.target.name === 'sauce' && document.querySelectorAll('input[name="sauce"]:checked').length > 2) event.target.checked = false; updateDetailTotal(); });
+document.addEventListener('keydown', event => { if (event.key !== 'Escape') return; if (document.querySelector('#product-overlay').classList.contains('open')) closeProduct(); if (document.querySelector('#payment-overlay').classList.contains('open')) closePayment(); });
+document.querySelectorAll('[data-page]').forEach(link => link.addEventListener('click', event => { event.preventDefault(); const page = link.dataset.page; document.querySelectorAll('[data-page]').forEach(item => item.classList.toggle('active', item.dataset.page === page)); document.querySelectorAll('.page-view').forEach(item => item.classList.toggle('active', item.id === `${page}-page`)); history.replaceState(null, '', `#${({ home: 'inicio', orders: 'pedidos', cart: 'carrinho', admin: 'admin' })[page] || 'inicio'}`); }));
+
+renderFoods(); renderOrders(); renderCart(); loadStorefrontCatalog();
