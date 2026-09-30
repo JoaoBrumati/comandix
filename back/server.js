@@ -231,6 +231,16 @@ app.post('/api/delivery/quote', async (request, response) => {
   }
 });
 
+app.get('/api/orders/lookup', asyncRoute(async (request, response) => {
+  const orderId = typeof request.query.orderId === 'string' ? request.query.orderId.trim() : '';
+  const phone = typeof request.query.phone === 'string' ? request.query.phone.trim() : '';
+  const reference = orderId || phone;
+  if (!reference) return response.status(400).json({ error: 'Informe o número do pedido ou o telefone do cadastro.' });
+  const orders = await adminStore.lookupOrders(reference);
+  if (!orders.length) return response.status(404).json({ error: 'Pedido não encontrado para os dados informados.' });
+  return response.json({ order: orders[0], orders });
+}));
+
 app.post('/api/orders', asyncRoute(async (request, response) => {
   const parsed = orderSchema.safeParse(request.body);
   if (!parsed.success) return response.status(400).json({ error: 'Dados do pedido inválidos.', details: parsed.error.flatten() });
@@ -249,7 +259,8 @@ app.post('/api/orders', asyncRoute(async (request, response) => {
     const customer = { name, phone, address: [street, number, complement, neighborhood, `${city}/${state}`].filter(Boolean).join(', '), reference };
     await adminStore.recordOrder({ orderId, items, subtotal, deliveryFee, total, payment, customer });
 
-    return response.status(201).json({ orderId, status: 'created', items, subtotal, deliveryFee, distanceKm: delivery.distanceKm, total, payment });
+    const orderCode = orderId.slice(0, 8).toUpperCase();
+    return response.status(201).json({ orderId, orderCode, status: 'created', items, subtotal, deliveryFee, distanceKm: delivery.distanceKm, total, payment });
   } catch (error) {
     return response.status(error.status || 400).json({ error: error.message });
   }

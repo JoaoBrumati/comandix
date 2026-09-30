@@ -64,6 +64,7 @@ function normalizeProduct(product, promotions = [], timestamp = new Date()) {
 function normalizeOrder(order, includeCustomer = true) {
   const result = {
     orderId: order.id,
+    orderCode: order.id.slice(0, 8).toUpperCase(),
     status: order.status,
     subtotal: moneyNumber(order.subtotal),
     deliveryFee: moneyNumber(order.deliveryFee),
@@ -75,6 +76,24 @@ function normalizeOrder(order, includeCustomer = true) {
   };
   if (includeCustomer) result.customer = decryptJson(order.customerData);
   return result;
+}
+
+function normalizePhone(value = '') {
+  return String(value).replace(/\D/g, '');
+}
+
+async function lookupOrders(reference = '') {
+  const query = String(reference || '').trim();
+  if (!query) return [];
+  const orders = await prisma.order.findMany({ include: { items: true }, orderBy: { createdAt: 'desc' } });
+  const cleanPhone = normalizePhone(query);
+  const matches = orders.filter(order => {
+    const customer = decryptJson(order.customerData);
+    const customerPhone = normalizePhone(customer.phone);
+    const orderCode = order.id.slice(0, 8).toUpperCase();
+    return order.id === query || orderCode === query.toUpperCase() || customerPhone === cleanPhone;
+  });
+  return matches.map(order => normalizeOrder(order, true));
 }
 
 async function initializeAdminStore() {
@@ -369,4 +388,4 @@ async function getDashboard(period = 'daily') {
   };
 }
 
-module.exports = { addAddon, addDocument, addEmployee, addTimeEntry, deleteAddon, deleteEmployee, deleteProduct, deletePromotion, getAddonPrice, getAddons, getCatalogProduct, getDashboard, getDocument, getEmployee, getMenuSettings, initializeAdminStore, listActivePromotions, listEmployees, listOrders, listProducts, recordOrder, saveProduct, savePromotion, scheduleVacation, updateEmployee, updateOrderStatus };
+module.exports = { addAddon, addDocument, addEmployee, addTimeEntry, deleteAddon, deleteEmployee, deleteProduct, deletePromotion, getAddonPrice, getAddons, getCatalogProduct, getDashboard, getDocument, getEmployee, getMenuSettings, initializeAdminStore, listActivePromotions, listEmployees, listOrders, listProducts, lookupOrders, recordOrder, saveProduct, savePromotion, scheduleVacation, updateEmployee, updateOrderStatus };

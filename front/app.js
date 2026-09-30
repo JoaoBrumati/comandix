@@ -19,10 +19,17 @@ let cart = [
   { ...foods[6], quantity: 1 }
 ];
 const orders = [
-  { ...foods[1], date: 'Hoje, 12:48', status: 'A caminho', total: 54.9 },
-  { ...foods[2], date: '18 set, 19:32', status: 'Entregue', total: 31.5 },
-  { ...foods[4], date: '12 set, 13:15', status: 'Entregue', total: 47.4 }
+  { ...foods[1], date: 'Hoje, 12:48', status: 'Pedido em rota de entrega', total: 54.9 },
+  { ...foods[2], date: '18 set, 19:32', status: 'Pedido entregue', total: 31.5 },
+  { ...foods[4], date: '12 set, 13:15', status: 'Pedido entregue', total: 47.4 }
 ];
+const orderStatusFlow = [
+  { id: 'new', label: 'Pedido realizado' },
+  { id: 'preparing', label: 'Pedido em produção' },
+  { id: 'out_for_delivery', label: 'Pedido em rota de entrega' },
+  { id: 'completed', label: 'Pedido entregue' }
+];
+const orderStatusLabels = Object.fromEntries(orderStatusFlow.map(stage => [stage.id, stage.label]));
 
 const money = value => `R$ ${value.toFixed(2).replace('.', ',')}`;
 const foodImage = food => food.image?.startsWith('/') ? food.image : `${imageBase}${food.image}`;
@@ -93,6 +100,52 @@ function addConfiguredProduct() {
   closeProduct();
   showToast(`${detailProduct.name} foi adicionado com seus adicionais`);
 }
+function renderOrderTracking(order) {
+  const orderCode = order.orderCode || order.orderId?.slice(0, 8).toUpperCase();
+  const activeStatusIndex = orderStatusFlow.findIndex(stage => stage.id === order.status);
+  const timeline = orderStatusFlow.map((stage, index) => {
+    const isDone = index < activeStatusIndex || (order.status === 'completed' && index === orderStatusFlow.length - 1);
+    const isCurrent = stage.id === order.status;
+    const stateClass = isDone ? 'done' : isCurrent ? 'current' : '';
+    const label = index < activeStatusIndex ? 'Concluído' : isCurrent ? 'Em andamento' : 'Próximo';
+    return `<div class="tracking-step ${stateClass}"><span class="tracking-dot"></span><div><strong>${stage.label}</strong><small>${label}</small></div></div>`;
+  }).join('');
+  const items = order.items?.map(item => `${item.quantity}× ${item.name}${item.addons?.length ? ` (${item.addons.join(', ')})` : ''}`).join('<br>') || '';
+  const total = money(Number(order.total || 0));
+  document.querySelector('#order-tracking').innerHTML = `
+    <div class="tracking-summary"><div><span>Pedido</span><strong>#${orderCode}</strong></div><div><span>Valor total</span><strong>${total}</strong></div></div>
+    ${timeline}
+    <div class="tracking-summary"><div><span>Itens</span><strong>${escapeText(order.items?.length ? order.items.length : 0)} itens</strong></div><div><span>Atualização</span><strong>${orderStatusLabels[order.status] || 'Pedido em análise'}</strong></div></div>
+    <div class="tracking-summary"><div><span>Resumo</span><strong>${items || 'Nenhum item informado'}</strong></div></div>
+  `;
+}
+
+async function lookupOrderByReference(event) {
+  event.preventDefault();
+  const orderId = document.querySelector('#lookup-order-id').value.trim();
+  const phone = document.querySelector('#lookup-phone').value.trim();
+  const feedback = document.querySelector('#lookup-feedback');
+  if (!orderId && !phone) {
+    feedback.textContent = 'Informe o número do pedido ou o telefone cadastrado.';
+    document.querySelector('#order-tracking').innerHTML = '';
+    return;
+  }
+  feedback.textContent = 'Consultando seu pedido...';
+  try {
+    const params = new URLSearchParams();
+    if (orderId) params.set('orderId', orderId);
+    if (phone) params.set('phone', phone);
+    const response = await fetch(`/api/orders/lookup?${params.toString()}`);
+    const result = await response.json();
+    if (!response.ok) throw new Error(result.error || 'Pedido não encontrado.');
+    renderOrderTracking(result.order);
+    feedback.textContent = `Pedido #${result.order.orderCode} encontrado.`;
+  } catch (error) {
+    document.querySelector('#order-tracking').innerHTML = '<div class="empty">Nenhum pedido encontrado para os dados informados.</div>';
+    feedback.textContent = error.message || 'Não foi possível consultar o pedido.';
+  }
+}
+
 function renderOrders() {
   document.querySelector('#orders-list').innerHTML = orders.map(order => `<article class="order-row"><img class="order-thumb" src="${foodImage(order)}" alt="${order.name}" /><div class="order-info"><strong>${order.name}</strong><p>${order.category} · ${money(order.total)}</p><div class="order-meta">Pedido realizado em ${order.date}</div><button class="repeat-button" data-repeat="${order.id}">Pedir de novo</button></div><div class="order-status"><span class="status">${order.status}</span><div class="order-date">${order.date}</div></div></article>`).join('');
 }
@@ -259,7 +312,9 @@ async function confirmPayment() {
     cart = [];
     renderCart();
     closePayment();
-    showToast(method === 'pix' ? `Pedido criado. PIX: ${result.payment.copyPaste}` : 'Pedido criado com sucesso!');
+    const orderCode = result.orderCode || result.orderId?.slice(0, 8).toUpperCase();
+    window.dispatchEvent(new CustomEvent('anotaai:order-created', { detail: { orderId: result.orderId, orderCode } }));
+    showToast(method === 'pix' ? `Pedido #${orderCode} criado. PIX: ${result.payment.copyPaste}` : `Pedido #${orderCode} criado com sucesso!`);
   } catch (requestError) { error.textContent = requestError instanceof TypeError ? 'Não foi possível conectar ao servidor. Confira se o projeto está rodando com npm start.' : requestError.message || 'Não foi possível concluir o pagamento.'; }
 }
 function showToast(message) { const toast = document.querySelector('#toast'); toast.textContent = message; toast.classList.add('show'); setTimeout(() => toast.classList.remove('show'), 2200); }
@@ -309,6 +364,9 @@ document.querySelector('#payment-overlay').addEventListener('click', event => { 
 document.querySelector('#payment-methods').addEventListener('click', event => { const method = event.target.closest('[data-method]'); if (!method) return; document.querySelectorAll('.payment-method').forEach(item => item.classList.toggle('active', item === method)); document.querySelectorAll('.payment-panel').forEach(panel => panel.classList.toggle('active', panel.dataset.panel === method.dataset.method)); });
 document.querySelector('#confirm-payment').addEventListener('click', confirmPayment);
 document.querySelector('#continue-payment').addEventListener('click', continueToPayment);
+document.querySelector('#order-lookup-form')?.addEventListener('submit', lookupOrderByReference);
+document.querySelector('#lookup-phone')?.addEventListener('input', () => { const digits = document.querySelector('#lookup-phone').value.replace(/\D/g, '').slice(0, 11); document.querySelector('#lookup-phone').value = digits.length > 10 ? `(${digits.slice(0,2)}) ${digits.slice(2,7)}-${digits.slice(7)}` : digits.length > 0 ? `(${digits.slice(0,2)}) ${digits.slice(2)}`.trim() : ''; });
+document.querySelector('#lookup-order-id')?.addEventListener('input', event => { event.target.value = event.target.value.replace(/[^a-zA-Z0-9]/g, '').slice(0, 16).toUpperCase(); });
 document.querySelector('#lookup-cep').addEventListener('click', lookupDeliveryCep);
 document.querySelector('#delivery-cep').addEventListener('input', handleCepInput);
 document.querySelector('#calculate-delivery').addEventListener('click', () => requestDeliveryQuote(true));

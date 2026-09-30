@@ -23,7 +23,7 @@
       <nav class="main-nav">
         <p class="nav-label">Menu</p>
         <a href="#inicio" class="nav-item active" data-page="home"><span class="nav-icon">⌂</span>Início</a>
-        <a href="#pedidos" class="nav-item" data-page="orders"><span class="nav-icon">▤</span>Pedidos solicitados</a>
+        <a href="#pedidos" class="nav-item" data-page="orders"><span class="nav-icon">▤</span>Consultar pedido</a>
         <a href="#carrinho" class="nav-item" data-page="cart"><span class="nav-icon">◷</span>Meu carrinho <span class="nav-count" id="nav-count">2</span></a>
         <a href="#admin" class="nav-item admin-nav-item" data-page="admin"><span class="nav-icon">▦</span>Administração</a>
         <nav class="admin-subnav" id="admin-subnav" aria-label="Seções administrativas" hidden>
@@ -60,7 +60,18 @@
       </div>
 
       <div class="page-view" id="orders-page">
-        <section class="simple-page-header"><span class="section-kicker">HISTÓRICO</span><h1>Pedidos solicitados</h1><p>Acompanhe seus pedidos recentes e peça de novo seus favoritos.</p></section>
+        <section class="simple-page-header"><span class="section-kicker">CONSULTA</span><h1>Consultar pedido</h1><p>Informe o número do pedido ou o telefone usado no cadastro para acompanhar seu status.</p></section>
+        <section class="order-lookup-panel">
+          <form id="order-lookup-form" class="order-lookup-form">
+            <div class="lookup-fields">
+              <label>Número do pedido<input id="lookup-order-id" type="text" placeholder="Ex.: 4A2F9C10" autocomplete="off" /></label>
+              <label>Telefone cadastrado<input id="lookup-phone" type="tel" placeholder="(11) 99999-9999" inputmode="tel" autocomplete="tel" /></label>
+            </div>
+            <button type="submit" class="lookup-button">Consultar</button>
+          </form>
+          <p class="lookup-feedback" id="lookup-feedback" role="status"></p>
+          <div class="order-tracking" id="order-tracking"></div>
+        </section>
         <section class="orders-list" id="orders-list"></section>
       </div>
 

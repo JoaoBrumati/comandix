@@ -1,15 +1,18 @@
 const adminLoginView = document.querySelector('#admin-login-view');
 const adminDashboardView = document.querySelector('#admin-dashboard-view');
 const adminLoginFeedback = document.querySelector('#admin-login-feedback');
+const employeeForm = document.querySelector('#employee-form');
 let selectedPeriod = 'daily';
 let requestedAdminSection = 'dashboard';
+let kanbanRefreshTimer = null;
+let kanbanLoading = false;
 const orderStages = [
-  { id: 'new', label: 'Novos pedidos' },
-  { id: 'preparing', label: 'Em preparo' },
-  { id: 'ready', label: 'Prontos' },
-  { id: 'out_for_delivery', label: 'Saiu para entrega' },
-  { id: 'completed', label: 'Concluídos' },
-  { id: 'cancelled', label: 'Cancelados' }
+  { id: 'new', label: 'Pedido realizado' },
+  { id: 'preparing', label: 'Pedido em produção' },
+  { id: 'ready', label: 'Pedido pronto' },
+  { id: 'out_for_delivery', label: 'Pedido em rota de entrega' },
+  { id: 'completed', label: 'Pedido entregue' },
+  { id: 'cancelled', label: 'Pedido cancelado' }
 ];
 
 const escapeHtml = value => String(value ?? '').replace(/[&<>"']/g, character => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[character]);
@@ -46,21 +49,33 @@ async function showAdminDashboard() {
 async function showAdminSection(section) {
   if (!['dashboard', 'orders', 'menu'].includes(section)) section = 'dashboard';
   requestedAdminSection = section;
+  clearInterval(kanbanRefreshTimer);
+  kanbanRefreshTimer = null;
   document.querySelectorAll('.admin-panel').forEach(panel => panel.classList.toggle('active', panel.id === `admin-${section}-panel`));
   document.querySelectorAll('[data-admin-section]').forEach(link => link.classList.toggle('active', link.dataset.adminSection === section));
   if (section === 'dashboard') await loadDashboard();
-  if (section === 'orders') await loadKanban();
+  if (section === 'orders') {
+    await loadKanban();
+    kanbanRefreshTimer = setInterval(() => loadKanban().catch(() => {}), 5000);
+  }
   if (section === 'menu') await loadAdminMenu();
 }
 
 async function navigateAdminSection(section) {
-  requestedAdminSection = section;
+  const normalized = ['dashboard', 'orders', 'menu'].includes(section) ? section : 'dashboard';
+  requestedAdminSection = normalized;
   document.querySelectorAll('.page-view').forEach(view => view.classList.toggle('active', view.id === 'admin-page'));
   document.querySelectorAll('[data-page]').forEach(link => link.classList.toggle('active', link.dataset.page === 'admin'));
-  document.querySelector('#admin-subnav').hidden = true;
   document.querySelector('.sidebar').classList.remove('open');
-  history.replaceState(null, '', `#admin/${section}`);
-  await loadAdminSession();
+  history.replaceState(null, '', `#admin/${normalized}`);
+  try {
+    await adminRequest('/api/admin/session');
+    await showAdminSection(normalized);
+  } catch {
+    adminLoginView.hidden = false;
+    adminDashboardView.hidden = true;
+    document.querySelector('#admin-subnav').hidden = true;
+  }
 }
 
 async function loadDashboard() {
@@ -86,11 +101,17 @@ function orderCard(order) {
 }
 
 async function loadKanban() {
-  const orders = await adminRequest('/api/admin/orders');
-  document.querySelector('#orders-kanban').innerHTML = orderStages.map(stage => {
-    const stageOrders = orders.filter(order => (order.status || 'new') === stage.id);
-    return `<section class="kanban-column" data-kanban-column="${stage.id}"><header><h3>${stage.label}</h3><span>${stageOrders.length}</span></header><div class="kanban-dropzone" data-drop-status="${stage.id}">${stageOrders.length ? stageOrders.map(orderCard).join('') : '<div class="kanban-empty">Solte pedidos aqui</div>'}</div></section>`;
-  }).join('');
+  if (kanbanLoading) return;
+  kanbanLoading = true;
+  try {
+    const orders = await adminRequest('/api/admin/orders');
+    document.querySelector('#orders-kanban').innerHTML = orderStages.map(stage => {
+      const stageOrders = orders.filter(order => (order.status || 'new') === stage.id);
+      return `<section class="kanban-column" data-kanban-column="${stage.id}"><header><h3>${stage.label}</h3><span>${stageOrders.length}</span></header><div class="kanban-dropzone" data-drop-status="${stage.id}">${stageOrders.length ? stageOrders.map(orderCard).join('') : '<div class="kanban-empty">Solte pedidos aqui</div>'}</div></section>`;
+    }).join('');
+  } finally {
+    kanbanLoading = false;
+  }
 }
 
 async function moveOrder(orderId, status) {
@@ -98,6 +119,13 @@ async function moveOrder(orderId, status) {
     await adminRequest(`/api/admin/orders/${encodeURIComponent(orderId)}/status`, { method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ status }) });
     await Promise.all([loadKanban(), loadDashboard()]);
   } catch (error) { showAdminToast(error.message); await loadKanban(); }
+}
+
+async function refreshAdminOrderBoards() {
+  if (!document.querySelector('#admin-dashboard-view') || document.querySelector('#admin-dashboard-view').hidden) return;
+  if (requestedAdminSection === 'dashboard' || requestedAdminSection === 'orders') {
+    await Promise.all([loadKanban(), loadDashboard()]);
+  }
 }
 
 function applyDashboardFilter() {
@@ -409,29 +437,34 @@ document.querySelector('#admin-login-form').addEventListener('submit', async eve
 document.querySelector('#admin-logout').addEventListener('click', async () => {
   try { await adminRequest('/api/admin/session', { method: 'DELETE' }); } finally { adminDashboardView.hidden = true; adminLoginView.hidden = false; document.querySelector('#admin-subnav').hidden = true; }
 });
-document.querySelector('#new-employee-button').addEventListener('click', () => setEmployeeForm());
-document.querySelector('#cancel-employee').addEventListener('click', () => { employeeForm.hidden = true; employeeForm.reset(); });
-employeeForm.addEventListener('submit', submitEmployee);
-document.querySelector('#employee-list').addEventListener('click', handleEmployeeAction);
-document.querySelector('#employee-list').addEventListener('submit', handleVacationSchedule);
-document.querySelector('#employee-list').addEventListener('change', uploadMedicalDocument);
-document.querySelector('#register-timeclock').addEventListener('click', registerTimeclock);
-document.querySelector('#new-product-button').addEventListener('click', () => setProductForm());
-document.querySelector('#cancel-product').addEventListener('click', () => { document.querySelector('#menu-form').hidden = true; document.querySelector('#menu-form').reset(); });
-document.querySelector('#menu-form').addEventListener('submit', saveMenuProduct);
-document.querySelector('#menu-product-list').addEventListener('click', handleMenuAction);
-document.querySelector('#addon-list').addEventListener('click', handleMenuAction);
-document.querySelector('#promotion-list').addEventListener('click', handleMenuAction);
-document.querySelector('#addon-form').addEventListener('submit', addAddon);
-document.querySelector('#add-promotion-button').addEventListener('click', () => setPromotionForm());
-document.querySelector('#cancel-promotion').addEventListener('click', () => { document.querySelector('#promotion-form').hidden = true; document.querySelector('#promotion-form').reset(); });
-document.querySelector('#promotion-form').addEventListener('submit', submitPromotion);
-document.querySelector('#promotion-product').addEventListener('change', updatePromotionPreview);
-document.querySelector('#promotion-percent').addEventListener('input', updatePromotionPreview);
-document.querySelector('#dashboard-filter').addEventListener('change', applyDashboardFilter);
-document.querySelector('#refresh-kanban').addEventListener('click', () => loadKanban().catch(error => showAdminToast(error.message)));
+
+window.addEventListener('anotaai:order-created', () => {
+  refreshAdminOrderBoards().catch(error => showAdminToast(error.message));
+});
+
+document.querySelector('#new-employee-button')?.addEventListener('click', () => setEmployeeForm());
+document.querySelector('#cancel-employee')?.addEventListener('click', () => { if (employeeForm) { employeeForm.hidden = true; employeeForm.reset(); } });
+employeeForm?.addEventListener('submit', submitEmployee);
+document.querySelector('#employee-list')?.addEventListener('click', handleEmployeeAction);
+document.querySelector('#employee-list')?.addEventListener('submit', handleVacationSchedule);
+document.querySelector('#employee-list')?.addEventListener('change', uploadMedicalDocument);
+document.querySelector('#register-timeclock')?.addEventListener('click', registerTimeclock);
+document.querySelector('#new-product-button')?.addEventListener('click', () => setProductForm());
+document.querySelector('#cancel-product')?.addEventListener('click', () => { const menuForm = document.querySelector('#menu-form'); if (menuForm) { menuForm.hidden = true; menuForm.reset(); } });
+document.querySelector('#menu-form')?.addEventListener('submit', saveMenuProduct);
+document.querySelector('#menu-product-list')?.addEventListener('click', handleMenuAction);
+document.querySelector('#addon-list')?.addEventListener('click', handleMenuAction);
+document.querySelector('#promotion-list')?.addEventListener('click', handleMenuAction);
+document.querySelector('#addon-form')?.addEventListener('submit', addAddon);
+document.querySelector('#add-promotion-button')?.addEventListener('click', () => setPromotionForm());
+document.querySelector('#cancel-promotion')?.addEventListener('click', () => { const promotionForm = document.querySelector('#promotion-form'); if (promotionForm) { promotionForm.hidden = true; promotionForm.reset(); } });
+document.querySelector('#promotion-form')?.addEventListener('submit', submitPromotion);
+document.querySelector('#promotion-product')?.addEventListener('change', updatePromotionPreview);
+document.querySelector('#promotion-percent')?.addEventListener('input', updatePromotionPreview);
+document.querySelector('#dashboard-filter')?.addEventListener('change', applyDashboardFilter);
+document.querySelector('#refresh-kanban')?.addEventListener('click', () => loadKanban().catch(error => showAdminToast(error.message)));
 const ordersKanban = document.querySelector('#orders-kanban');
-ordersKanban.addEventListener('change', event => {
+ordersKanban?.addEventListener('change', event => {
   const select = event.target.closest('[data-kanban-status]');
   if (select) moveOrder(select.dataset.kanbanStatus, select.value);
 });
@@ -457,9 +490,17 @@ document.querySelectorAll('[data-period]').forEach(button => button.addEventList
   document.querySelectorAll('[data-period]').forEach(item => item.classList.toggle('active', item === button));
   try { await loadDashboard(); } catch (error) { showAdminToast(error.message); }
 }));
+document.querySelectorAll('[data-admin-section]').forEach(button => {
+  button.addEventListener('click', async event => {
+    event.preventDefault();
+    await navigateAdminSection(button.dataset.adminSection);
+  });
+});
 document.querySelector('.sidebar').addEventListener('click', event => {
-  const adminSection = event.target.closest('[data-admin-section]');
-  if (adminSection) return navigateAdminSection(adminSection.dataset.adminSection);
-  if (event.target.closest('[data-page="admin"]')) navigateAdminSection('dashboard');
+  const adminLink = event.target.closest('[data-page="admin"]');
+  if (adminLink) {
+    event.preventDefault();
+    navigateAdminSection('dashboard');
+  }
 });
 updateWhatsAppLink();
