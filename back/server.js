@@ -238,7 +238,7 @@ app.get('/api/orders/lookup', asyncRoute(async (request, response) => {
   if (!reference) return response.status(400).json({ error: 'Informe o número do pedido ou o telefone do cadastro.' });
   const orders = await adminStore.lookupOrders(reference);
   if (!orders.length) return response.status(404).json({ error: 'Pedido não encontrado para os dados informados.' });
-  return response.json({ order: orders[0], orders });
+  return response.json({ order: orders[0] });
 }));
 
 app.post('/api/orders', asyncRoute(async (request, response) => {

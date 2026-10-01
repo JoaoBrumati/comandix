@@ -69,7 +69,7 @@ function normalizeOrder(order, includeCustomer = true) {
     subtotal: moneyNumber(order.subtotal),
     deliveryFee: moneyNumber(order.deliveryFee),
     total: moneyNumber(order.total),
-    payment: { method: order.paymentMethod, status: order.paymentStatus, ...(order.paymentData ? decryptJson(order.paymentData) : {}) },
+    payment: { method: order.paymentMethod, status: order.paymentStatus, ...(includeCustomer && order.paymentData ? decryptJson(order.paymentData) : {}) },
     createdAt: order.createdAt.toISOString(),
     statusUpdatedAt: order.statusUpdatedAt.toISOString(),
     items: order.items.map(item => ({ productId: item.productId, name: item.name, quantity: item.quantity, addons: item.addons, unitPrice: moneyNumber(item.unitPrice), total: moneyNumber(item.total) }))
@@ -93,7 +93,7 @@ async function lookupOrders(reference = '') {
     const orderCode = order.id.slice(0, 8).toUpperCase();
     return order.id === query || orderCode === query.toUpperCase() || customerPhone === cleanPhone;
   });
-  return matches.map(order => normalizeOrder(order, true));
+  return matches.map(order => normalizeOrder(order, false));
 }
 
 async function initializeAdminStore() {

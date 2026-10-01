@@ -18,18 +18,15 @@ let cart = [
   { ...foods[0], quantity: 1 },
   { ...foods[6], quantity: 1 }
 ];
-const orders = [
-  { ...foods[1], date: 'Hoje, 12:48', status: 'Pedido em rota de entrega', total: 54.9 },
-  { ...foods[2], date: '18 set, 19:32', status: 'Pedido entregue', total: 31.5 },
-  { ...foods[4], date: '12 set, 13:15', status: 'Pedido entregue', total: 47.4 }
-];
 const orderStatusFlow = [
   { id: 'new', label: 'Pedido realizado' },
   { id: 'preparing', label: 'Pedido em produção' },
+  { id: 'ready', label: 'Pedido pronto' },
   { id: 'out_for_delivery', label: 'Pedido em rota de entrega' },
   { id: 'completed', label: 'Pedido entregue' }
 ];
 const orderStatusLabels = Object.fromEntries(orderStatusFlow.map(stage => [stage.id, stage.label]));
+orderStatusLabels.cancelled = 'Pedido cancelado';
 
 const money = value => `R$ ${value.toFixed(2).replace('.', ',')}`;
 const foodImage = food => food.image?.startsWith('/') ? food.image : `${imageBase}${food.image}`;
@@ -43,6 +40,8 @@ let deliveryQuote = null;
 let lastQueriedCep = '';
 let lastQuoteKey = '';
 let quoteTimer;
+let trackedOrderId = '';
+let orderRefreshTimer = null;
 
 function renderFoods() {
   const activeCategory = document.querySelector('.category.active')?.dataset.category || 'Todos';
@@ -112,16 +111,40 @@ function renderOrderTracking(order) {
   }).join('');
   const items = order.items?.map(item => `${item.quantity}× ${item.name}${item.addons?.length ? ` (${item.addons.join(', ')})` : ''}`).join('<br>') || '';
   const total = money(Number(order.total || 0));
+  const statusMessage = order.status === 'cancelled' ? '<p class="lookup-feedback">Este pedido foi cancelado.</p>' : '';
   document.querySelector('#order-tracking').innerHTML = `
     <div class="tracking-summary"><div><span>Pedido</span><strong>#${orderCode}</strong></div><div><span>Valor total</span><strong>${total}</strong></div></div>
     ${timeline}
+    ${statusMessage}
     <div class="tracking-summary"><div><span>Itens</span><strong>${escapeText(order.items?.length ? order.items.length : 0)} itens</strong></div><div><span>Atualização</span><strong>${orderStatusLabels[order.status] || 'Pedido em análise'}</strong></div></div>
     <div class="tracking-summary"><div><span>Resumo</span><strong>${items || 'Nenhum item informado'}</strong></div></div>
   `;
 }
 
+function trackOrder(order) {
+  clearInterval(orderRefreshTimer);
+  trackedOrderId = order.orderId;
+  if (['completed', 'cancelled'].includes(order.status)) return;
+  orderRefreshTimer = setInterval(async () => {
+    if (document.visibilityState !== 'visible' || !document.querySelector('#orders-page').classList.contains('active')) return;
+    try {
+      const params = new URLSearchParams({ orderId: trackedOrderId });
+      const response = await fetch(`/api/orders/lookup?${params.toString()}`);
+      if (!response.ok) return;
+      const result = await response.json();
+      renderOrderTracking(result.order);
+      if (['completed', 'cancelled'].includes(result.order.status)) {
+        clearInterval(orderRefreshTimer);
+        orderRefreshTimer = null;
+      }
+    } catch {}
+  }, 15000);
+}
+
 async function lookupOrderByReference(event) {
-  event.preventDefault();
+  event?.preventDefault();
+  clearInterval(orderRefreshTimer);
+  orderRefreshTimer = null;
   const orderId = document.querySelector('#lookup-order-id').value.trim();
   const phone = document.querySelector('#lookup-phone').value.trim();
   const feedback = document.querySelector('#lookup-feedback');
@@ -134,11 +157,12 @@ async function lookupOrderByReference(event) {
   try {
     const params = new URLSearchParams();
     if (orderId) params.set('orderId', orderId);
-    if (phone) params.set('phone', phone);
+    else params.set('phone', phone);
     const response = await fetch(`/api/orders/lookup?${params.toString()}`);
     const result = await response.json();
     if (!response.ok) throw new Error(result.error || 'Pedido não encontrado.');
     renderOrderTracking(result.order);
+    trackOrder(result.order);
     feedback.textContent = `Pedido #${result.order.orderCode} encontrado.`;
   } catch (error) {
     document.querySelector('#order-tracking').innerHTML = '<div class="empty">Nenhum pedido encontrado para os dados informados.</div>';
@@ -147,7 +171,7 @@ async function lookupOrderByReference(event) {
 }
 
 function renderOrders() {
-  document.querySelector('#orders-list').innerHTML = orders.map(order => `<article class="order-row"><img class="order-thumb" src="${foodImage(order)}" alt="${order.name}" /><div class="order-info"><strong>${order.name}</strong><p>${order.category} · ${money(order.total)}</p><div class="order-meta">Pedido realizado em ${order.date}</div><button class="repeat-button" data-repeat="${order.id}">Pedir de novo</button></div><div class="order-status"><span class="status">${order.status}</span><div class="order-date">${order.date}</div></div></article>`).join('');
+  document.querySelector('#orders-list').innerHTML = '';
 }
 function renderCart() {
   navCount.textContent = cart.reduce((sum, item) => sum + item.quantity, 0);
@@ -314,6 +338,10 @@ async function confirmPayment() {
     closePayment();
     const orderCode = result.orderCode || result.orderId?.slice(0, 8).toUpperCase();
     window.dispatchEvent(new CustomEvent('anotaai:order-created', { detail: { orderId: result.orderId, orderCode } }));
+    document.querySelector('#lookup-order-id').value = orderCode;
+    document.querySelector('#lookup-phone').value = '';
+    document.querySelector('[data-page="orders"]').click();
+    await lookupOrderByReference();
     showToast(method === 'pix' ? `Pedido #${orderCode} criado. PIX: ${result.payment.copyPaste}` : `Pedido #${orderCode} criado com sucesso!`);
   } catch (requestError) { error.textContent = requestError instanceof TypeError ? 'Não foi possível conectar ao servidor. Confira se o projeto está rodando com npm start.' : requestError.message || 'Não foi possível concluir o pagamento.'; }
 }
