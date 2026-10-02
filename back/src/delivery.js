@@ -9,21 +9,46 @@ async function lookupCep(cep) {
   }
   if (cepCache.has(cep)) return cepCache.get(cep);
 
-  const response = await fetch(`https://cep.awesomeapi.com.br/json/${cep}`, { signal: AbortSignal.timeout(8000) });
-  if (response.status === 404) {
-    const error = new Error('CEP não encontrado. Confira os números digitados.');
-    error.status = 404;
-    throw error;
-  }
-  if (!response.ok) {
-    const error = new Error('O serviço de CEP está temporariamente indisponível. Tente novamente.');
-    error.status = 502;
-    throw error;
+  let notFound = false;
+  const providers = [
+    {
+      url: `https://cep.awesomeapi.com.br/json/${cep}`,
+      normalize: data => data
+    },
+    {
+      url: `https://brasilapi.com.br/api/cep/v2/${cep}`,
+      normalize: data => ({
+        cep: data.cep,
+        address: data.street || '',
+        district: data.neighborhood || '',
+        city: data.city || '',
+        state: data.state || '',
+        lat: data.location?.coordinates?.latitude,
+        lng: data.location?.coordinates?.longitude
+      })
+    }
+  ];
+
+  for (const provider of providers) {
+    try {
+      const response = await fetch(provider.url, { signal: AbortSignal.timeout(8000) });
+      if (response.status === 404) {
+        notFound = true;
+        continue;
+      }
+      if (!response.ok) continue;
+      const contentType = response.headers.get('content-type') || '';
+      if (!contentType.includes('json')) continue;
+      const cepData = provider.normalize(await response.json());
+      if (!cepData || typeof cepData !== 'object' || !cepData.cep) continue;
+      cepCache.set(cep, cepData);
+      return cepData;
+    } catch {}
   }
 
-  const cepData = await response.json();
-  cepCache.set(cep, cepData);
-  return cepData;
+  const error = new Error(notFound ? 'CEP não encontrado. Confira os números digitados.' : 'O serviço de CEP está temporariamente indisponível. Tente novamente.');
+  error.status = notFound ? 404 : 502;
+  throw error;
 }
 
 function getCoordinates(cepData) {

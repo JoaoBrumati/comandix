@@ -6,6 +6,13 @@ let selectedPeriod = 'daily';
 let requestedAdminSection = 'dashboard';
 let kanbanRefreshTimer = null;
 let kanbanLoading = false;
+const kanbanPeriodStorageKey = 'anotaai-kanban-period';
+const allowedOrderPeriods = ['daily', 'weekly', 'monthly', 'yearly'];
+let kanbanPeriod = 'daily';
+try {
+  const storedKanbanPeriod = localStorage.getItem(kanbanPeriodStorageKey);
+  if (allowedOrderPeriods.includes(storedKanbanPeriod)) kanbanPeriod = storedKanbanPeriod;
+} catch {}
 const orderStages = [
   { id: 'new', label: 'Pedido realizado' },
   { id: 'preparing', label: 'Pedido em produção' },
@@ -24,7 +31,11 @@ async function adminRequest(url, options = {}) {
   const response = await fetch(url, { credentials: 'same-origin', ...options });
   if (response.status === 204) return null;
   const body = await response.json().catch(() => ({}));
-  if (!response.ok) throw new Error(body.error || 'Não foi possível concluir a operação.');
+  if (!response.ok) {
+    const error = new Error(body.error || 'Não foi possível concluir a operação.');
+    error.status = response.status;
+    throw error;
+  }
   return body;
 }
 
@@ -71,10 +82,14 @@ async function navigateAdminSection(section) {
   try {
     await adminRequest('/api/admin/session');
     await showAdminSection(normalized);
-  } catch {
-    adminLoginView.hidden = false;
-    adminDashboardView.hidden = true;
-    document.querySelector('#admin-subnav').hidden = true;
+  } catch (error) {
+    if (error.status === 401) {
+      adminLoginView.hidden = false;
+      adminDashboardView.hidden = true;
+      document.querySelector('#admin-subnav').hidden = true;
+      return;
+    }
+    showAdminToast(error.message);
   }
 }
 
@@ -104,7 +119,7 @@ async function loadKanban() {
   if (kanbanLoading) return;
   kanbanLoading = true;
   try {
-    const orders = await adminRequest('/api/admin/orders');
+    const orders = await adminRequest(`/api/admin/orders?period=${kanbanPeriod}`);
     document.querySelector('#orders-kanban').innerHTML = orderStages.map(stage => {
       const stageOrders = orders.filter(order => (order.status || 'new') === stage.id);
       return `<section class="kanban-column" data-kanban-column="${stage.id}"><header><h3>${stage.label}</h3><span>${stageOrders.length}</span></header><div class="kanban-dropzone" data-drop-status="${stage.id}">${stageOrders.length ? stageOrders.map(orderCard).join('') : '<div class="kanban-empty">Solte pedidos aqui</div>'}</div></section>`;
@@ -463,6 +478,15 @@ document.querySelector('#promotion-product')?.addEventListener('change', updateP
 document.querySelector('#promotion-percent')?.addEventListener('input', updatePromotionPreview);
 document.querySelector('#dashboard-filter')?.addEventListener('change', applyDashboardFilter);
 document.querySelector('#refresh-kanban')?.addEventListener('click', () => loadKanban().catch(error => showAdminToast(error.message)));
+document.querySelectorAll('[data-kanban-period]').forEach(button => {
+  button.classList.toggle('active', button.dataset.kanbanPeriod === kanbanPeriod);
+  button.addEventListener('click', () => {
+    kanbanPeriod = button.dataset.kanbanPeriod;
+    document.querySelectorAll('[data-kanban-period]').forEach(item => item.classList.toggle('active', item === button));
+    try { localStorage.setItem(kanbanPeriodStorageKey, kanbanPeriod); } catch {}
+    loadKanban().catch(error => showAdminToast(error.message));
+  });
+});
 const ordersKanban = document.querySelector('#orders-kanban');
 ordersKanban?.addEventListener('change', event => {
   const select = event.target.closest('[data-kanban-status]');
@@ -504,3 +528,8 @@ document.querySelector('.sidebar').addEventListener('click', event => {
   }
 });
 updateWhatsAppLink();
+const adminRoute = window.location.hash.match(/^#admin(?:\/(dashboard|orders|menu))?$/);
+if (adminRoute) {
+  requestedAdminSection = adminRoute[1] || 'dashboard';
+  loadAdminSession();
+}

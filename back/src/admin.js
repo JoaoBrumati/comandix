@@ -2,7 +2,7 @@ const crypto = require('crypto');
 const { z } = require('zod');
 const prisma = require('./db');
 const { decryptBuffer, decryptJson, encryptBuffer, encryptJson, hashCpf } = require('./encryption');
-const { addons: defaultAddons, products: defaultProducts } = require('./catalog');
+const { addons: defaultAddons } = require('./catalog');
 
 const employeeSchema = z.object({
   name: z.string().trim().min(5).max(100),
@@ -20,6 +20,7 @@ const productSchema = z.object({
   active: z.boolean().default(true)
 });
 const orderStatuses = new Set(['new', 'preparing', 'ready', 'out_for_delivery', 'completed', 'cancelled']);
+const orderPeriods = new Set(['daily', 'weekly', 'monthly', 'yearly']);
 
 function isValidCpf(cpf) {
   if (!/^\d{11}$/.test(cpf) || /^([0-9])\1{10}$/.test(cpf)) return false;
@@ -99,13 +100,6 @@ async function lookupOrders(reference = '') {
 async function initializeAdminStore() {
   hashCpf('database-encryption-key-check');
   await prisma.$connect();
-  for (const product of defaultProducts) {
-    await prisma.product.upsert({
-      where: { id: product.id },
-      create: { ...product, price: product.price },
-      update: {}
-    });
-  }
   const defaultGroup = { drinks: 'drinks', sides: 'sides', sauces: 'sauces' };
   for (const [group, entries] of Object.entries(defaultAddons)) {
     for (const addon of entries) {
@@ -314,8 +308,9 @@ async function recordOrder(order) {
   });
 }
 
-async function listOrders() {
-  const orders = await prisma.order.findMany({ include: { items: true }, orderBy: { createdAt: 'desc' } });
+async function listOrders(period = 'daily') {
+  if (!orderPeriods.has(period)) period = 'daily';
+  const orders = await prisma.order.findMany({ where: { createdAt: { gte: startOfPeriod(period) } }, include: { items: true }, orderBy: { createdAt: 'desc' } });
   return orders.map(order => normalizeOrder(order));
 }
 
@@ -372,8 +367,7 @@ function startOfPeriod(period, now = new Date()) {
 }
 
 async function getDashboard(period = 'daily') {
-  const allowedPeriods = new Set(['daily', 'weekly', 'monthly', 'yearly']);
-  if (!allowedPeriods.has(period)) period = 'daily';
+  if (!orderPeriods.has(period)) period = 'daily';
   const where = { createdAt: { gte: startOfPeriod(period) } };
   const [summary, orders] = await Promise.all([
     prisma.order.aggregate({ where, _count: { _all: true }, _sum: { total: true, deliveryFee: true } }),

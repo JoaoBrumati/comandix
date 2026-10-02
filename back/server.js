@@ -36,7 +36,14 @@ app.disable('x-powered-by');
 app.use(helmet({ contentSecurityPolicy: false }));
 app.use(cors({ origin: clientOrigin, methods: ['GET', 'POST'], credentials: false }));
 app.use(express.json({ limit: '20kb', strict: true }));
-app.use(rateLimit({ windowMs: 15 * 60 * 1000, limit: 120, standardHeaders: true, legacyHeaders: false }));
+app.use(rateLimit({
+  windowMs: 15 * 60 * 1000,
+  limit: 120,
+  standardHeaders: true,
+  legacyHeaders: false,
+  handler: (_request, response) => response.status(429).json({ error: 'Muitas solicitações. Aguarde um momento e tente novamente.' }),
+  skip: request => request.method === 'GET' && request.path === '/api/admin/orders'
+}));
 app.use(['/api/catalog', '/api/promotion', '/api/admin', '/api/orders'], (_request, response, next) => {
   if (!databaseReady) return response.status(503).json({ error: 'PostgreSQL indisponível. Configure DATABASE_URL, aplique as migrations e tente novamente.' });
   next();
@@ -118,7 +125,7 @@ const adminApi = express.Router();
 adminApi.use(requireAdmin);
 adminApi.use(requireSameOrigin);
 adminApi.get('/dashboard', asyncRoute(async (request, response) => response.json(await adminStore.getDashboard(request.query.period))));
-adminApi.get('/orders', asyncRoute(async (_request, response) => response.json(await adminStore.listOrders())));
+adminApi.get('/orders', asyncRoute(async (request, response) => response.json(await adminStore.listOrders(request.query.period))));
 adminApi.patch('/orders/:id/status', asyncRoute(async (request, response) => {
   const result = await adminStore.updateOrderStatus(request.params.id, request.body?.status);
   return result.error ? response.status(result.status || 400).json({ error: result.error }) : response.json(result.data);

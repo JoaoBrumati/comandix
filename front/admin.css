@@ -1052,6 +1052,21 @@
   scrollbar-width: thin;
 }
 
+.kanban-controls {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 14px;
+}
+
+@media (max-width: 520px) {
+  .kanban-controls {
+    align-items: flex-start;
+    flex-direction: column;
+  }
+}
+
 .kanban-column {
   min-width: 0;
   padding: 10px;

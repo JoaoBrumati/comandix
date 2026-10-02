@@ -1,23 +1,11 @@
 const imageBase = window.location.protocol === 'file:' ? '../img/' : '/img/';
-let foods = [
-  { id: 1, name: 'Smash clássico', category: 'Hambúrgueres', description: 'Pão brioche, carne, queijo e molho da casa.', price: 28.9, rating: '4.9', tag: 'Mais pedido', image: 'Qual-e-o-Lanche-Mais-Popular-no-Brasil.webp' },
-  { id: 2, name: 'Pizza da casa', category: 'Pizzas', description: 'Queijo cremoso, tomate fresco e manjericão.', price: 42.0, rating: '4.8', tag: 'Favorita', image: 'WhatsApp Image 2026-09-24 at 12.02.10.jpeg' },
-  { id: 3, name: 'Bowl tropical', category: 'Saudável', description: 'Arroz, salada crocante, frango e molho cítrico.', price: 31.5, rating: '4.7', tag: 'Leve', image: 'WhatsApp Image 2026-09-24 at 12.02.11 (1).jpeg' },
-  { id: 4, name: 'Brownie quentinho', category: 'Doces', description: 'Chocolate intenso, casquinha crocante e calda.', price: 16.9, rating: '4.9', tag: 'Novo', image: 'WhatsApp Image 2026-09-24 at 12.02.11 (2).jpeg' },
-  { id: 5, name: 'Batata crocante', category: 'Hambúrgueres', description: 'Porção dourada com páprica e molho especial.', price: 18.5, rating: '4.8', tag: 'Para dividir', image: 'WhatsApp Image 2026-09-24 at 12.02.11.jpeg' },
-  { id: 6, name: 'Torta de frutas', category: 'Doces', description: 'Massa amanteigada, creme e frutas da estação.', price: 19.9, rating: '4.6', tag: 'Do dia', image: 'WhatsApp Image 2026-09-24 at 12.02.12 (1).jpeg' },
-  { id: 7, name: 'Limonada fresca', category: 'Bebidas', description: 'Limão espremido, água com gás e hortelã.', price: 9.9, rating: '4.9', tag: 'Refrescante', image: 'WhatsApp Image 2026-09-24 at 12.02.12.jpeg' },
-  { id: 8, name: 'Combo completo', category: 'Hambúrgueres', description: 'Smash, batata e bebida para matar a fome.', price: 39.9, rating: '5.0', tag: 'Combo', image: 'WhatsApp Image 2026-09-24 at 12.02.10 (1).jpeg' }
-];
+let foods = [];
 let addonGroups = {
   drinks: [{ name: 'Coca-Cola 350ml', price: 7 }, { name: 'Guaraná 350ml', price: 7 }, { name: 'Água mineral', price: 4 }],
   sides: [{ name: 'Batata frita', price: 8 }, { name: 'Anéis de cebola', price: 10 }, { name: 'Salada fresca', price: 6 }],
   sauces: [{ name: 'Maionese da casa', price: 2 }, { name: 'Molho barbecue', price: 2 }, { name: 'Ketchup', price: 1 }]
 };
-let cart = [
-  { ...foods[0], quantity: 1 },
-  { ...foods[6], quantity: 1 }
-];
+let cart = [];
 const orderStatusFlow = [
   { id: 'new', label: 'Pedido realizado' },
   { id: 'preparing', label: 'Pedido em produção' },
@@ -236,7 +224,8 @@ async function lookupDeliveryCep() {
   feedback.textContent = 'Buscando endereço...';
   try {
     const response = await fetch(`/api/cep/${cep}`);
-    const result = await response.json();
+    const result = await response.json().catch(() => null);
+    if (!result) throw new Error(response.status === 429 ? 'Muitas consultas de CEP. Aguarde um momento e tente novamente.' : `Não foi possível localizar o CEP (HTTP ${response.status}).`);
     if (!response.ok) throw new Error(result.error || 'Não foi possível localizar o CEP.');
     document.querySelector('#delivery-street').value = result.street;
     document.querySelector('#delivery-neighborhood').value = result.neighborhood;
@@ -353,7 +342,7 @@ async function loadStorefrontCatalog() {
     const response = await fetch('/api/catalog');
     if (!response.ok) return;
     const data = await response.json();
-    if (Array.isArray(data.products) && data.products.length) foods = data.products.map(product => ({ ...product, originalPrice: product.price, price: product.salePrice ?? product.price }));
+    if (Array.isArray(data.products)) foods = data.products.map(product => ({ ...product, originalPrice: product.price, price: product.salePrice ?? product.price }));
     if (data.addons) addonGroups = data.addons;
     renderCategories();
     renderFoods();
@@ -388,7 +377,6 @@ document.querySelector('#detail-increase').addEventListener('click', () => { det
 document.querySelector('#detail-decrease').addEventListener('click', () => { if (detailQuantity > 1) detailQuantity--; updateDetailTotal(); });
 document.querySelector('#detail-add').addEventListener('click', addConfiguredProduct);
 document.querySelector('#payment-close').addEventListener('click', closePayment);
-document.querySelector('#payment-overlay').addEventListener('click', event => { if (event.target.id === 'payment-overlay') closePayment(); });
 document.querySelector('#payment-methods').addEventListener('click', event => { const method = event.target.closest('[data-method]'); if (!method) return; document.querySelectorAll('.payment-method').forEach(item => item.classList.toggle('active', item === method)); document.querySelectorAll('.payment-panel').forEach(panel => panel.classList.toggle('active', panel.dataset.panel === method.dataset.method)); });
 document.querySelector('#confirm-payment').addEventListener('click', confirmPayment);
 document.querySelector('#continue-payment').addEventListener('click', continueToPayment);
@@ -401,7 +389,21 @@ document.querySelector('#calculate-delivery').addEventListener('click', () => re
 ['#customer-name', '#customer-phone', '#delivery-number'].forEach(selector => document.querySelector(selector).addEventListener('input', scheduleDeliveryQuote));
 document.querySelector('#back-to-delivery').addEventListener('click', () => showCheckoutStep('delivery'));
 document.querySelector('#product-overlay').addEventListener('change', event => { if (!event.target.matches('input')) return; if (event.target.name === 'drink') document.querySelectorAll('input[name="drink"]').forEach(input => { if (input !== event.target) input.checked = false; }); if (event.target.name === 'side' && document.querySelectorAll('input[name="side"]:checked').length > 2) event.target.checked = false; if (event.target.name === 'sauce' && document.querySelectorAll('input[name="sauce"]:checked').length > 2) event.target.checked = false; updateDetailTotal(); });
-document.addEventListener('keydown', event => { if (event.key !== 'Escape') return; if (document.querySelector('#product-overlay').classList.contains('open')) closeProduct(); if (document.querySelector('#payment-overlay').classList.contains('open')) closePayment(); });
-document.querySelectorAll('[data-page]').forEach(link => link.addEventListener('click', event => { event.preventDefault(); const page = link.dataset.page; document.querySelectorAll('[data-page]').forEach(item => item.classList.toggle('active', item.dataset.page === page)); document.querySelectorAll('.page-view').forEach(item => item.classList.toggle('active', item.id === `${page}-page`)); history.replaceState(null, '', `#${({ home: 'inicio', orders: 'pedidos', cart: 'carrinho', admin: 'admin' })[page] || 'inicio'}`); }));
+document.addEventListener('keydown', event => { if (event.key !== 'Escape') return; if (document.querySelector('#product-overlay').classList.contains('open')) closeProduct(); });
+const pageHashes = { home: 'inicio', orders: 'pedidos', cart: 'carrinho', admin: 'admin' };
+function activatePage(page) {
+  if (!pageHashes[page]) page = 'home';
+  document.querySelectorAll('[data-page]').forEach(item => item.classList.toggle('active', item.dataset.page === page));
+  document.querySelectorAll('.page-view').forEach(item => item.classList.toggle('active', item.id === `${page}-page`));
+}
+document.querySelectorAll('[data-page]').forEach(link => link.addEventListener('click', event => {
+  event.preventDefault();
+  const page = link.dataset.page;
+  activatePage(page);
+  history.replaceState(null, '', `#${pageHashes[page] || pageHashes.home}`);
+}));
+const initialPageHash = window.location.hash.slice(1).split('/')[0];
+const initialPage = Object.keys(pageHashes).find(page => pageHashes[page] === initialPageHash) || 'home';
+activatePage(initialPage);
 
 renderFoods(); renderOrders(); renderCart(); loadStorefrontCatalog();
