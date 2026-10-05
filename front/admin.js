@@ -158,7 +158,7 @@ function renderEmployeeOptions() {
 
 function productMarkup(product) {
   const price = product.promotionPercentage ? `<small><s>${formatCurrency(product.price)}</s> ${formatCurrency(product.salePrice)} · Promoção ${product.promotionPercentage}%</small>` : `<small>${escapeHtml(product.category)} · ${formatCurrency(product.price)}</small>`;
-  return `<article class="menu-product-row ${product.active ? '' : 'product-hidden'}"><img src="${escapeHtml(product.image)}" alt="" /><div class="menu-product-info"><strong>${escapeHtml(product.name)}${product.active ? '' : ' · Oculto'}</strong>${price}<span>${escapeHtml(product.description)}</span></div><div class="menu-product-actions"><button type="button" data-toggle-product="${product.id}">${product.active ? 'Ocultar da vitrine' : 'Exibir na vitrine'}</button><button type="button" data-edit-product="${product.id}">Editar</button><button type="button" data-delete-product="${product.id}" class="employee-delete">Excluir</button></div></article>`;
+  return `<article class="menu-product-row ${product.active ? '' : 'product-hidden'}">${product.image ? `<img src="${escapeHtml(product.image)}" alt="" />` : '<div class="menu-product-no-image"></div>'}<div class="menu-product-info"><strong>${escapeHtml(product.name)}${product.active ? '' : ' · Oculto'}</strong>${price}<span>${escapeHtml(product.description)}</span></div><div class="menu-product-actions"><button type="button" data-toggle-product="${product.id}">${product.active ? 'Ocultar da vitrine' : 'Exibir na vitrine'}</button><button type="button" data-edit-product="${product.id}">Editar</button><button type="button" data-delete-product="${product.id}" class="employee-delete">Excluir</button></div></article>`;
 }
 
 function toLocalDateTime(value) {
@@ -177,12 +177,41 @@ function promotionMarkup(promotion) {
 
 async function loadAdminMenu() {
   const menu = await adminRequest('/api/admin/menu');
+  const categorySelect = document.querySelector('#menu-product-category');
+  const currentCategory = categorySelect.value;
+  categorySelect.innerHTML = '<option value="">Selecione um grupo</option>' + menu.groups.map(group => `<option value="${escapeHtml(group)}">${escapeHtml(group)}</option>`).join('');
+  if (menu.groups.includes(currentCategory)) categorySelect.value = currentCategory;
   const scheduledProductIds = new Set(menu.promotions.map(promotion => promotion.productId));
   const promotionOptions = '<option value="">Selecione um produto</option>' + menu.products.filter(product => product.active || scheduledProductIds.has(product.id)).map(product => `<option value="${product.id}" data-price="${product.price}">${escapeHtml(product.name)}${product.active ? '' : ' (Oculto)'}</option>`).join('');
   document.querySelector('#promotion-product').innerHTML = promotionOptions;
   document.querySelector('#promotion-list').innerHTML = menu.promotions.length ? menu.promotions.map(promotionMarkup).join('') : '<div class="admin-empty">Nenhuma promoção cadastrada.</div>';
-  document.querySelector('#menu-product-list').innerHTML = menu.products.length ? menu.products.map(productMarkup).join('') : '<div class="admin-empty">Nenhum produto cadastrado.</div>';
-  document.querySelector('#addon-list').innerHTML = Object.entries(menu.addons).flatMap(([group, options]) => options.map(option => `<div class="addon-row"><span>${escapeHtml(option.name)}</span><small>${escapeHtml({ drinks: 'Bebidas', sides: 'Acompanhamentos', sauces: 'Molhos' }[group])}</small><strong>${formatCurrency(option.price)}</strong><button type="button" data-delete-addon="${escapeHtml(group)}" data-addon-name="${escapeHtml(option.name)}" aria-label="Excluir ${escapeHtml(option.name)}">×</button></div>`)).join('') || '<div class="admin-empty">Nenhum complemento cadastrado.</div>';
+  const productsByCategory = Object.groupBy ? Object.groupBy(menu.products, product => product.category) : menu.products.reduce((groups, product) => ({ ...groups, [product.category]: [...(groups[product.category] || []), product] }), {});
+  document.querySelector('#menu-product-list').innerHTML = menu.products.length ? Object.entries(productsByCategory).map(([category, products]) => `<section class="menu-product-group"><h3>${escapeHtml(category)}</h3>${products.map(productMarkup).join('')}</section>`).join('') : '<div class="admin-empty">Nenhum produto cadastrado.</div>';
+  const productCounts = menu.products.reduce((counts, product) => ({ ...counts, [product.category]: (counts[product.category] || 0) + 1 }), {});
+  const protectedGroups = new Set(['Bebidas', 'Complementos', 'Acompanhamentos', 'Molhos']);
+  document.querySelector('#group-list').innerHTML = menu.groups.map(group => `<div class="group-row"><span>${escapeHtml(group)}</span><small>${productCounts[group] || 0} produtos</small><button type="button" data-delete-group="${escapeHtml(group)}" ${protectedGroups.has(group) ? 'disabled title="Grupo reservado para complementos"' : ''} aria-label="Excluir grupo ${escapeHtml(group)}">×</button></div>`).join('');
+}
+
+async function saveProductGroup(event) {
+  event.preventDefault();
+  const input = document.querySelector('#group-name');
+  try {
+    await adminRequest('/api/admin/menu/groups', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ name: input.value.trim() }) });
+    input.value = '';
+    await loadAdminMenu();
+    showAdminToast('Grupo adicionado.');
+  } catch (error) { showAdminToast(error.message); }
+}
+
+async function handleGroupAction(event) {
+  const button = event.target.closest('[data-delete-group]');
+  if (!button || button.disabled) return;
+  if (!window.confirm(`Excluir o grupo "${button.dataset.deleteGroup}"?`)) return;
+  try {
+    await adminRequest(`/api/admin/menu/groups/${encodeURIComponent(button.dataset.deleteGroup)}`, { method: 'DELETE' });
+    await loadAdminMenu();
+    showAdminToast('Grupo excluído.');
+  } catch (error) { showAdminToast(error.message); }
 }
 
 function employeeMarkup(employee) {
@@ -269,11 +298,16 @@ function setProductForm(product = null) {
   form.reset();
   document.querySelector('#menu-product-id').value = product?.id || '';
   document.querySelector('#menu-product-name').value = product?.name || '';
-  document.querySelector('#menu-product-category').value = product?.category || '';
+  const categorySelect = document.querySelector('#menu-product-category');
+  if (product?.category && ![...categorySelect.options].some(option => option.value === product.category)) categorySelect.add(new Option(product.category, product.category));
+  categorySelect.value = product?.category || '';
   document.querySelector('#menu-product-price').value = product?.price ?? '';
   document.querySelector('#menu-product-description').value = product?.description || '';
   document.querySelector('#menu-product-active').value = String(product?.active ?? true);
   form.dataset.currentImage = product?.image || '';
+  const imagePreview = document.querySelector('#menu-image-preview');
+  imagePreview.hidden = !product?.image;
+  if (product?.image) imagePreview.querySelector('img').src = product.image;
   form.hidden = false;
   form.scrollIntoView({ behavior: 'smooth', block: 'start' });
 }
@@ -291,8 +325,9 @@ async function saveMenuProduct(event) {
       const upload = await adminRequest('/api/admin/menu/images', { method: 'POST', body: imageForm });
       image = upload.image;
     }
-    if (!image) throw new Error('Selecione uma imagem para o produto.');
-    const payload = { name: document.querySelector('#menu-product-name').value.trim(), category: document.querySelector('#menu-product-category').value.trim(), description: document.querySelector('#menu-product-description').value.trim(), price: Number(document.querySelector('#menu-product-price').value), image, active: document.querySelector('#menu-product-active').value === 'true' };
+    const category = document.querySelector('#menu-product-category').value;
+    if (!image && !['Complementos', 'Acompanhamentos', 'Molhos'].includes(category)) throw new Error('Selecione uma imagem para produtos da vitrine.');
+    const payload = { name: document.querySelector('#menu-product-name').value.trim(), category, description: document.querySelector('#menu-product-description').value.trim(), price: Number(document.querySelector('#menu-product-price').value), image, active: document.querySelector('#menu-product-active').value === 'true' };
     await adminRequest(id ? `/api/admin/menu/products/${encodeURIComponent(id)}` : '/api/admin/menu/products', { method: id ? 'PATCH' : 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload) });
     form.hidden = true;
     await loadAdminMenu();
@@ -341,10 +376,6 @@ async function handleMenuAction(event) {
     try { await adminRequest(`/api/admin/menu/promotions/${encodeURIComponent(deletePromotion.dataset.deletePromotion)}`, { method: 'DELETE' }); await loadAdminMenu(); await window.refreshStorefrontCatalog(); } catch (error) { showAdminToast(error.message); }
     return;
   }
-  const removeAddon = event.target.closest('[data-delete-addon]');
-  if (removeAddon) {
-    try { await adminRequest(`/api/admin/menu/addons/${removeAddon.dataset.deleteAddon}/${encodeURIComponent(removeAddon.dataset.addonName)}`, { method: 'DELETE' }); await loadAdminMenu(); await window.refreshStorefrontCatalog(); } catch (error) { showAdminToast(error.message); }
-  }
 }
 
 function setPromotionForm(promotion = null) {
@@ -391,13 +422,6 @@ async function submitPromotion(event) {
     await window.refreshStorefrontCatalog();
     showAdminToast(id ? 'Promoção atualizada.' : 'Promoção agendada.');
   } catch (error) { showAdminToast(error.message); }
-}
-
-async function addAddon(event) {
-  event.preventDefault();
-  const form = event.currentTarget;
-  const payload = { name: document.querySelector('#addon-name').value.trim(), group: document.querySelector('#addon-group').value, price: Number(document.querySelector('#addon-price').value) };
-  try { await adminRequest('/api/admin/menu/addons', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload) }); form.reset(); await loadAdminMenu(); await window.refreshStorefrontCatalog(); } catch (error) { showAdminToast(error.message); }
 }
 
 async function uploadMedicalDocument(event) {
@@ -465,12 +489,19 @@ document.querySelector('#employee-list')?.addEventListener('submit', handleVacat
 document.querySelector('#employee-list')?.addEventListener('change', uploadMedicalDocument);
 document.querySelector('#register-timeclock')?.addEventListener('click', registerTimeclock);
 document.querySelector('#new-product-button')?.addEventListener('click', () => setProductForm());
+document.querySelector('#manage-groups-button')?.addEventListener('click', () => { const manager = document.querySelector('#group-manager'); manager.hidden = !manager.hidden; });
+document.querySelector('#group-form')?.addEventListener('submit', saveProductGroup);
+document.querySelector('#group-list')?.addEventListener('click', handleGroupAction);
 document.querySelector('#cancel-product')?.addEventListener('click', () => { const menuForm = document.querySelector('#menu-form'); if (menuForm) { menuForm.hidden = true; menuForm.reset(); } });
 document.querySelector('#menu-form')?.addEventListener('submit', saveMenuProduct);
 document.querySelector('#menu-product-list')?.addEventListener('click', handleMenuAction);
-document.querySelector('#addon-list')?.addEventListener('click', handleMenuAction);
 document.querySelector('#promotion-list')?.addEventListener('click', handleMenuAction);
-document.querySelector('#addon-form')?.addEventListener('submit', addAddon);
+document.querySelector('#remove-product-image')?.addEventListener('click', () => {
+  const form = document.querySelector('#menu-form');
+  form.dataset.currentImage = '';
+  document.querySelector('#menu-product-image').value = '';
+  document.querySelector('#menu-image-preview').hidden = true;
+});
 document.querySelector('#add-promotion-button')?.addEventListener('click', () => setPromotionForm());
 document.querySelector('#cancel-promotion')?.addEventListener('click', () => { const promotionForm = document.querySelector('#promotion-form'); if (promotionForm) { promotionForm.hidden = true; promotionForm.reset(); } });
 document.querySelector('#promotion-form')?.addEventListener('submit', submitPromotion);

@@ -2,6 +2,10 @@
   width: min(100%, 650px);
 }
 
+.payment-methods {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
 .payment-content {
   padding: 30px 34px 28px;
 }
@@ -44,8 +48,9 @@
 }
 
 #delivery-step input[readonly] {
-  color: #65655e;
-  background: #f2f2ed;
+  border-color: #d4d5d1;
+  color: #60635f;
+  background: #e6e7e4;
 }
 
 .delivery-address-block {

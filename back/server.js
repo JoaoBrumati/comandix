@@ -10,6 +10,7 @@ const rateLimit = require('express-rate-limit');
 const { lookupCep, quoteDelivery, publicAddress } = require('./src/delivery');
 const { orderSchema } = require('./src/validators');
 const adminStore = require('./src/admin');
+const { createCheckoutPreference, fetchMercadoPagoPayment, verifyWebhookSignature } = require('./src/payments');
 
 const app = express();
 const port = Number(process.env.PORT || 3000);
@@ -33,7 +34,22 @@ const uploadMenuImage = multer({
 });
 
 app.disable('x-powered-by');
-app.use(helmet({ contentSecurityPolicy: false }));
+app.use(helmet({
+  contentSecurityPolicy: {
+    directives: {
+      defaultSrc: ["'self'"],
+      scriptSrc: ["'self'"],
+      styleSrc: ["'self'", 'https://fonts.googleapis.com'],
+      fontSrc: ["'self'", 'https://fonts.gstatic.com', 'data:'],
+      imgSrc: ["'self'", 'data:'],
+      connectSrc: ["'self'"],
+      objectSrc: ["'none'"],
+      baseUri: ["'self'"],
+      frameAncestors: ["'self'"],
+      formAction: ["'self'"]
+    }
+  }
+}));
 app.use(cors({ origin: clientOrigin, methods: ['GET', 'POST'], credentials: false }));
 app.use(express.json({ limit: '20kb', strict: true }));
 app.use(rateLimit({
@@ -44,7 +60,7 @@ app.use(rateLimit({
   handler: (_request, response) => response.status(429).json({ error: 'Muitas solicitações. Aguarde um momento e tente novamente.' }),
   skip: request => request.method === 'GET' && request.path === '/api/admin/orders'
 }));
-app.use(['/api/catalog', '/api/promotion', '/api/admin', '/api/orders'], (_request, response, next) => {
+app.use(['/api/catalog', '/api/promotion', '/api/admin', '/api/orders', '/api/payments'], (_request, response, next) => {
   if (!databaseReady) return response.status(503).json({ error: 'PostgreSQL indisponível. Configure DATABASE_URL, aplique as migrations e tente novamente.' });
   next();
 });
@@ -68,7 +84,16 @@ async function calculateOrder(items) {
   }));
 }
 
-app.get('/api/health', (_request, response) => response.status(databaseReady ? 200 : 503).json({ status: databaseReady ? 'ok' : 'degraded', database: databaseReady ? 'connected' : 'unavailable' }));
+app.get('/api/health', (_request, response) => {
+  let publicUrl;
+  try { publicUrl = new URL(process.env.PUBLIC_BASE_URL || ''); } catch {}
+  const paymentsReady = process.env.PAYMENT_PROVIDER === 'mercadopago'
+    && Boolean(process.env.MERCADOPAGO_ACCESS_TOKEN)
+    && Boolean(process.env.MERCADOPAGO_WEBHOOK_SECRET)
+    && Boolean(publicUrl && (process.env.NODE_ENV !== 'production' || publicUrl.protocol === 'https:'));
+  const ready = databaseReady && (process.env.NODE_ENV !== 'production' || paymentsReady);
+  return response.status(ready ? 200 : 503).json({ status: ready ? 'ok' : 'degraded', database: databaseReady ? 'connected' : 'unavailable', payments: paymentsReady ? 'configured' : 'not_configured' });
+});
 app.get('/api/public-config', (_request, response) => response.json({ whatsapp: (process.env.STORE_WHATSAPP || '').replace(/\D/g, '') }));
 app.get('/api/catalog', asyncRoute(async (_request, response) => response.json({ products: await adminStore.listProducts(), addons: await adminStore.getAddons() })));
 app.get('/api/promotion', asyncRoute(async (_request, response) => response.json(await adminStore.listActivePromotions())));
@@ -172,6 +197,14 @@ adminApi.get('/employees/:id/documents/:documentId', asyncRoute(async (request, 
   return response.send(document.buffer);
 }));
 adminApi.get('/menu', asyncRoute(async (_request, response) => response.json(await adminStore.getMenuSettings())));
+adminApi.post('/menu/groups', asyncRoute(async (request, response) => {
+  const result = await adminStore.createProductGroup(request.body?.name);
+  return result.error ? response.status(400).json({ error: result.error }) : response.status(201).json({ name: result.data });
+}));
+adminApi.delete('/menu/groups/:name', asyncRoute(async (request, response) => {
+  const result = await adminStore.deleteProductGroup(request.params.name);
+  return result.error ? response.status(result.status || 400).json({ error: result.error }) : response.status(204).end();
+}));
 adminApi.post('/menu/products', asyncRoute(async (request, response) => {
   const result = await adminStore.saveProduct(null, request.body);
   if (result.error) return response.status(result.status || 400).json({ error: result.error, details: result.details });
@@ -209,14 +242,6 @@ adminApi.post('/menu/images', uploadMenuImage.single('image'), (request, respons
   require('fs').writeFileSync(path.join(menuImageDir, fileName), file.buffer, { flag: 'wx' });
   return response.status(201).json({ image: `/img/menu/${fileName}` });
 });
-adminApi.post('/menu/addons', asyncRoute(async (request, response) => {
-  const result = await adminStore.addAddon(request.body);
-  return result.error ? response.status(400).json({ error: result.error }) : response.status(201).json(result.data);
-}));
-adminApi.delete('/menu/addons/:group/:name', asyncRoute(async (request, response) => {
-  const name = decodeURIComponent(request.params.name);
-  return await adminStore.deleteAddon(request.params.group, name) ? response.status(204).end() : response.status(404).json({ error: 'Complemento não encontrado.' });
-}));
 app.use('/api/admin', adminApi);
 
 app.get('/api/cep/:cep', async (request, response) => {
@@ -248,6 +273,31 @@ app.get('/api/orders/lookup', asyncRoute(async (request, response) => {
   return response.json({ order: orders[0] });
 }));
 
+app.post('/api/payments/mercadopago/webhook', asyncRoute(async (request, response) => {
+  const secret = process.env.MERCADOPAGO_WEBHOOK_SECRET;
+  if (!secret) return response.status(503).json({ error: 'Webhook de pagamento não configurado.' });
+  const dataId = request.query['data.id'] || request.body?.data?.id;
+  const validSignature = verifyWebhookSignature({
+    dataId,
+    requestId: request.get('x-request-id'),
+    signature: request.get('x-signature'),
+    secret
+  });
+  if (!validSignature) return response.status(401).json({ error: 'Assinatura de webhook inválida.' });
+  if (request.body?.type !== 'payment' && request.query.topic !== 'payment') return response.status(200).json({ received: true });
+
+  const payment = await fetchMercadoPagoPayment(dataId);
+  const knownStatuses = new Set(['pending', 'approved', 'authorized', 'in_process', 'in_mediation', 'rejected', 'cancelled', 'refunded', 'charged_back']);
+  if (!knownStatuses.has(payment.status) || payment.currency_id !== 'BRL' || !payment.external_reference) return response.status(200).json({ received: true });
+  const updated = await adminStore.updateOrderPayment(payment.external_reference, {
+    status: payment.status,
+    amount: Number(payment.transaction_amount),
+    providerPaymentId: String(payment.id),
+    statusDetail: payment.status_detail || ''
+  });
+  return response.status(updated ? 200 : 404).json({ received: updated });
+}));
+
 app.post('/api/orders', asyncRoute(async (request, response) => {
   const parsed = orderSchema.safeParse(request.body);
   if (!parsed.success) return response.status(400).json({ error: 'Dados do pedido inválidos.', details: parsed.error.flatten() });
@@ -259,15 +309,21 @@ app.post('/api/orders', asyncRoute(async (request, response) => {
     const deliveryFee = delivery.fee;
     const total = subtotal + deliveryFee;
     const orderId = crypto.randomUUID();
-    const payment = parsed.data.payment.method === 'pix'
-      ? { method: 'pix', status: 'pending', copyPaste: `anotaai-pix-${orderId}` }
-      : { method: parsed.data.payment.method, status: 'pending' };
+    let payment;
+    let checkoutUrl;
+    if (parsed.data.payment.method === 'mercadopago') {
+      const preference = await createCheckoutPreference({ orderId, items, deliveryFee });
+      payment = { method: 'mercadopago', status: 'pending', preferenceId: preference.id };
+      checkoutUrl = preference.checkoutUrl;
+    } else {
+      payment = { method: 'cash', status: 'pending' };
+    }
     const { name, phone, street, number, neighborhood, city, state, complement, reference } = parsed.data.customer;
     const customer = { name, phone, address: [street, number, complement, neighborhood, `${city}/${state}`].filter(Boolean).join(', '), reference };
     await adminStore.recordOrder({ orderId, items, subtotal, deliveryFee, total, payment, customer });
 
     const orderCode = orderId.slice(0, 8).toUpperCase();
-    return response.status(201).json({ orderId, orderCode, status: 'created', items, subtotal, deliveryFee, distanceKm: delivery.distanceKm, total, payment });
+    return response.status(201).json({ orderId, orderCode, status: 'created', items, subtotal, deliveryFee, distanceKm: delivery.distanceKm, total, payment: { method: payment.method, status: payment.status, checkoutUrl } });
   } catch (error) {
     return response.status(error.status || 400).json({ error: error.message });
   }

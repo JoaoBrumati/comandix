@@ -101,7 +101,8 @@
             <div class="orders-kanban" id="orders-kanban"></div>
           </section>
           <section class="admin-panel" id="admin-menu-panel">
-            <div class="admin-section-heading"><div><span class="section-kicker">PRODUTOS E ADICIONAIS</span><h2>Configurações do cardápio</h2></div><button class="admin-primary" id="new-product-button">+ Novo produto</button></div>
+            <div class="admin-section-heading"><div><span class="section-kicker">PRODUTOS E ADICIONAIS</span><h2>Configurações do cardápio</h2></div><div class="menu-heading-actions"><button class="admin-secondary" id="manage-groups-button" type="button">Grupos</button><button class="admin-primary" id="new-product-button" type="button">+ Novo produto</button></div></div>
+            <section class="group-manager" id="group-manager" hidden><form id="group-form"><label>Novo grupo<input id="group-name" maxlength="50" required placeholder="Ex.: Lanches" /></label><button class="admin-primary" type="submit">Adicionar grupo</button></form><div id="group-list" class="group-list"></div></section>
             <section class="promotion-manager">
               <div class="admin-section-heading"><div><span class="section-kicker">VITRINE</span><h2>Promoções ativas e agendadas</h2></div><button class="admin-primary" id="add-promotion-button">+ Nova promoção</button></div>
               <div class="promotion-list" id="promotion-list"></div>
@@ -118,13 +119,13 @@
             <form class="employee-form menu-form" id="menu-form" hidden>
               <input id="menu-product-id" type="hidden" />
               <input id="menu-product-active" type="hidden" value="true" />
-              <label>Nome<input id="menu-product-name" required /></label><label>Categoria<input id="menu-product-category" placeholder="Hambúrgueres, Bebidas..." required /></label>
+              <label>Nome<input id="menu-product-name" required /></label><label>Grupo<select id="menu-product-category" required><option value="">Selecione um grupo</option></select></label>
               <label>Preço (R$)<input id="menu-product-price" type="number" min="0" step="0.01" required /></label><label>Imagem do produto<input id="menu-product-image" type="file" accept="image/jpeg,image/png,image/webp" /></label>
+              <div class="menu-image-preview" id="menu-image-preview" hidden><img alt="Foto atual do produto" /><button type="button" class="admin-secondary" id="remove-product-image">Remover foto</button></div>
               <label class="menu-description-field">Descrição<textarea id="menu-product-description" rows="3" required></textarea></label>
               <div class="employee-form-actions"><button type="button" class="admin-secondary" id="cancel-product">Cancelar</button><button type="submit" class="admin-primary">Salvar produto</button></div>
             </form>
             <div class="menu-product-list" id="menu-product-list"></div>
-            <section class="admin-data-section addon-settings"><div class="admin-section-heading"><div><span class="section-kicker">OPÇÕES DE PERSONALIZAÇÃO</span><h2>Complementos</h2></div></div><form id="addon-form" class="addon-form"><label>Nome do complemento<input id="addon-name" required /></label><label>Grupo<select id="addon-group"><option value="drinks">Bebidas</option><option value="sides">Acompanhamentos</option><option value="sauces">Molhos</option></select></label><label>Preço (R$)<input id="addon-price" type="number" min="0" step="0.01" required /></label><button class="admin-primary" type="submit">Adicionar complemento</button></form><div id="addon-list" class="addon-list"></div></section>
           </section>
         </section>
       </div>
@@ -187,12 +188,10 @@
             <section class="checkout-step" id="payment-step" aria-label="Forma de pagamento">
               <button class="back-to-delivery" id="back-to-delivery">← Voltar para entrega</button>
             <div class="payment-methods" id="payment-methods">
-              <button class="payment-method active" data-method="pix"><span class="payment-method-icon">◈</span><strong>PIX</strong><small>Pagamento instantâneo</small></button>
-              <button class="payment-method" data-method="card"><span class="payment-method-icon">▣</span><strong>Cartão</strong><small>Crédito ou débito</small></button>
+              <button class="payment-method active" data-method="mercadopago"><span class="payment-method-icon">◈</span><strong>Cartão ou PIX</strong><small>Checkout seguro Mercado Pago</small></button>
               <button class="payment-method" data-method="cash"><span class="payment-method-icon">◇</span><strong>Dinheiro</strong><small>Pagar na entrega</small></button>
             </div>
-            <div class="payment-panel active" data-panel="pix"><div class="pix-box"><span>PIX</span><strong>Você receberá o código após confirmar.</strong><small>O código é gerado pelo servidor e expira em 30 minutos.</small></div></div>
-            <div class="payment-panel" data-panel="card"><label>Nome no cartão<input id="card-name" autocomplete="cc-name" placeholder="Como está no cartão" /></label><label>Últimos 4 dígitos<input id="card-last4" inputmode="numeric" maxlength="4" placeholder="0000" /></label><small class="secure-note">O cartão deve ser tokenizado pelo gateway. Nenhum número completo é enviado ou armazenado por este site.</small></div>
+            <div class="payment-panel active" data-panel="mercadopago"><div class="pix-box"><span>MERCADO PAGO</span><strong>Cartão e PIX</strong><small>O pagamento será concluído no ambiente seguro do Mercado Pago.</small></div></div>
             <div class="payment-panel" data-panel="cash"><label>Troco para (opcional)<input id="cash-change" inputmode="decimal" placeholder="Ex.: 50,00" /></label><small class="secure-note">Informe o valor apenas se precisar de troco.</small></div>
             <div class="payment-summary"><div><span>Itens</span><strong id="payment-subtotal">R$ 0,00</strong></div><div><span>Taxa de entrega</span><strong id="payment-delivery-fee">Consultar</strong></div><div class="payment-grand-total"><span>Total do pedido</span><strong id="payment-total">Consultar</strong></div></div>
             <button class="confirm-payment" id="confirm-payment">Confirmar pedido <span>→</span></button>

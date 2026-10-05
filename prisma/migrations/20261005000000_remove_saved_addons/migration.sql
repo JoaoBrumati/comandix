@@ -1,0 +1,2 @@
+DROP TABLE IF EXISTS "Addon";
+DROP TYPE IF EXISTS "AddonGroup";

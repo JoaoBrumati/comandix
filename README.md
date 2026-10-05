@@ -7,8 +7,8 @@ Aplicação de pedidos com catálogo, adicionais e checkout.
 - `front/`: interface, estilos, lógica do catálogo, carrinho e checkout.
 - `front/components/`: espaço para componentes visuais reutilizáveis.
 - `back/`: API Node.js/Express.
-- `back/src/catalog.js`: catálogo inicial e preços oficiais do servidor.
 - `back/src/validators.js`: validação dos pedidos com Zod.
+- `back/src/payments.js`: integração de checkout e validação de webhooks.
 - `prisma/schema.prisma`: modelos PostgreSQL.
 - `prisma/migrations/`: migrations versionadas.
 - `img/`: imagens dos produtos.
@@ -32,9 +32,9 @@ Abra `http://localhost:3000`.
 
 ## Pagamento
 
-O checkout permite PIX, cartão e dinheiro. O projeto está em `PAYMENT_PROVIDER=mock`: a API cria o pedido e retorna um código PIX de teste. Para cobrança real, conecte um gateway como Mercado Pago, Stripe ou Pagar.me usando tokenização no frontend e credenciais somente no backend.
+O checkout oferece dinheiro na entrega ou redireciona cartão/PIX ao Checkout Pro do Mercado Pago. A API cria a preferência com preços recalculados pelo servidor; a confirmação do pagamento só é atualizada após um webhook assinado e uma consulta autenticada ao Mercado Pago. Os dados de cartão permanecem no provedor.
 
-Nunca envie ou armazene número completo, CVV ou senha de cartão. O endpoint atual aceita apenas um token e valida o formato do pedido.
+Para testar cobrança, configure `PAYMENT_PROVIDER=mercadopago`, `MERCADOPAGO_ACCESS_TOKEN`, `MERCADOPAGO_WEBHOOK_SECRET` e `PUBLIC_BASE_URL`. Em produção, `PUBLIC_BASE_URL` precisa ser HTTPS e apontar para o domínio público que recebe `/api/payments/mercadopago/webhook`. Use credenciais de teste antes das credenciais de produção e confirme os eventos de pagamento no painel do Mercado Pago. Com `PAYMENT_PROVIDER=mock`, o sistema não inicia cobranças online.
 
 ## Proteções aplicadas
 
@@ -51,7 +51,7 @@ Nunca envie ou armazene número completo, CVV ou senha de cartão. O endpoint at
 
 O usuário administrativo é `admin` (`ADMIN_USER` no `.env`). Configure `ADMIN_PASSWORD` no mesmo arquivo com pelo menos 12 caracteres para liberar o acesso; a senha não possui valor padrão. A área permite dashboard diário, semanal, mensal e anual de pedidos e faturamento, cadastro e edição de colaboradores, programação de férias separada do cadastro, registro de ponto e anexos PDF/JPG/PNG de até 5 MB.
 
-No Dashboard, o ADM filtra pedidos, faturamento ou ambos por período. Colaboradores e Cardápio têm atalhos próprios na sidebar. Na aba Cardápio, o ADM pode criar e editar produtos, alterar imagem, descrição, categoria e preço, ocultar/exibir itens sem excluí-los, administrar complementos por grupo e cadastrar promoções percentuais com início e fim opcionais. A lista mostra promoções ativas, agendadas e encerradas, com ações para editar ou apagar. A prévia mostra o preço final; a vitrine exibe o selo “Promoção” e o backend aplica o desconto apenas durante o período programado. Os dados operacionais ficam no PostgreSQL, e informações pessoais são cifradas pela aplicação.
+No Dashboard, o ADM filtra pedidos, faturamento ou ambos por período. Colaboradores e Cardápio têm atalhos próprios na sidebar. Na aba Cardápio, o ADM pode criar e editar grupos e produtos, alterar imagem, descrição, categoria e preço, ocultar/exibir itens sem excluí-los e cadastrar promoções percentuais com início e fim opcionais. Grupos com produtos vinculados ou reservados para adicionais não podem ser apagados. A lista mostra promoções ativas, agendadas e encerradas, com ações para editar ou apagar. A prévia mostra o preço final; a vitrine exibe o selo “Promoção” e o backend aplica o desconto apenas durante o período programado. Os dados operacionais ficam no PostgreSQL, e informações pessoais são cifradas pela aplicação.
 
 CPF, salário, endereço, dados do cliente e documentos são cifrados com AES-256-GCM pela aplicação antes de serem salvos no PostgreSQL. Configure uma chave aleatória de 32 bytes em Base64 como `DATA_ENCRYPTION_KEY`; mantenha-a em segredo e faça backup seguro.
 

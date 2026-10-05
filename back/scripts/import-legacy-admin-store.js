@@ -27,7 +27,7 @@ function asDate(value, fallback = new Date()) {
 
 async function importLegacyState(state) {
   const legacyDocuments = new Map((state.documents || []).map(document => [document.id, document]));
-  const counts = { employees: 0, documents: 0, products: 0, addons: 0, promotions: 0, orders: 0 };
+  const counts = { employees: 0, documents: 0, products: 0, promotions: 0, orders: 0 };
 
   await prisma.$transaction(async transaction => {
     for (const product of state.products || []) {
@@ -37,13 +37,6 @@ async function importLegacyState(state) {
         update: { name: product.name, category: product.category, description: product.description, price: Number(product.price), image: product.image, rating: product.rating || '5.0', tag: product.tag || 'Do cardápio', active: product.active !== false }
       });
       counts.products++;
-    }
-
-    for (const [group, addons] of Object.entries(state.addons || {})) {
-      for (const addon of addons) {
-        await transaction.addon.upsert({ where: { name: addon.name }, create: { name: addon.name, group, price: Number(addon.price) }, update: { group, price: Number(addon.price) } });
-        counts.addons++;
-      }
     }
 
     for (const employee of state.employees || []) {

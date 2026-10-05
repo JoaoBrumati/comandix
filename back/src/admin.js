@@ -1,8 +1,9 @@
 const crypto = require('crypto');
+const fs = require('fs');
+const path = require('path');
 const { z } = require('zod');
 const prisma = require('./db');
 const { decryptBuffer, decryptJson, encryptBuffer, encryptJson, hashCpf } = require('./encryption');
-const { addons: defaultAddons } = require('./catalog');
 
 const employeeSchema = z.object({
   name: z.string().trim().min(5).max(100),
@@ -16,7 +17,7 @@ const productSchema = z.object({
   category: z.string().trim().min(2).max(50),
   description: z.string().trim().min(3).max(500),
   price: z.number().finite().min(0).max(100000),
-  image: z.string().trim().min(1).max(240),
+  image: z.string().trim().max(240),
   active: z.boolean().default(true)
 });
 const orderStatuses = new Set(['new', 'preparing', 'ready', 'out_for_delivery', 'completed', 'cancelled']);
@@ -100,12 +101,6 @@ async function lookupOrders(reference = '') {
 async function initializeAdminStore() {
   hashCpf('database-encryption-key-check');
   await prisma.$connect();
-  const defaultGroup = { drinks: 'drinks', sides: 'sides', sauces: 'sauces' };
-  for (const [group, entries] of Object.entries(defaultAddons)) {
-    for (const addon of entries) {
-      await prisma.addon.upsert({ where: { name: addon.name }, create: { ...addon, group: defaultGroup[group] }, update: {} });
-    }
-  }
 }
 
 function validateEmployee(payload) {
@@ -165,14 +160,14 @@ async function scheduleVacation(id, payload) {
 }
 
 async function listProducts() {
-  const [products, promotions] = await Promise.all([prisma.product.findMany({ where: { active: true }, orderBy: { id: 'asc' } }), prisma.promotion.findMany()]);
+  const [products, promotions] = await Promise.all([prisma.product.findMany({ where: { active: true, category: { notIn: ['Complementos', 'Acompanhamentos', 'Molhos'] } }, orderBy: { id: 'asc' } }), prisma.promotion.findMany()]);
   return products.map(product => normalizeProduct(product, promotions));
 }
 
 async function getMenuSettings() {
-  const [products, addons, promotions] = await Promise.all([
+  const [products, groups, promotions] = await Promise.all([
     prisma.product.findMany({ orderBy: { id: 'asc' } }),
-    prisma.addon.findMany({ orderBy: [{ group: 'asc' }, { name: 'asc' }] }),
+    prisma.productGroup.findMany({ orderBy: { name: 'asc' }, select: { name: true } }),
     prisma.promotion.findMany({ include: { product: true }, orderBy: [{ startsAt: 'asc' }, { createdAt: 'asc' }] })
   ]);
   const now = new Date();
@@ -187,35 +182,70 @@ async function getMenuSettings() {
     basePrice: moneyNumber(promotion.product.price),
     salePrice: salePrice(promotion.product, promotion)
   }));
-  const addonsByGroup = { drinks: [], sides: [], sauces: [] };
-  for (const addon of addons) addonsByGroup[addon.group].push({ name: addon.name, price: moneyNumber(addon.price) });
-  return { products: products.map(product => normalizeProduct(product, promotions, now)), addons: addonsByGroup, promotions: allPromotions };
+  return { products: products.map(product => normalizeProduct(product, promotions, now)), groups: groups.map(group => group.name), promotions: allPromotions };
+}
+
+async function createProductGroup(name) {
+  const parsed = z.string().trim().min(2).max(50).safeParse(name);
+  if (!parsed.success) return { error: 'O nome do grupo deve ter de 2 a 50 caracteres.' };
+  try {
+    const group = await prisma.productGroup.create({ data: { name: parsed.data } });
+    return { data: group.name };
+  } catch (error) {
+    if (error.code === 'P2002') return { error: 'Já existe um grupo com esse nome.' };
+    throw error;
+  }
+}
+
+async function deleteProductGroup(name) {
+  if (['Bebidas', 'Complementos', 'Acompanhamentos', 'Molhos'].includes(name)) return { error: 'Este grupo é reservado para as opções dos produtos.' };
+  const products = await prisma.product.count({ where: { category: name } });
+  if (products) return { error: 'Mova ou exclua os produtos deste grupo antes de removê-lo.' };
+  try {
+    await prisma.productGroup.delete({ where: { name } });
+    return { data: true };
+  } catch (error) {
+    if (error.code === 'P2025') return { error: 'Grupo não encontrado.', status: 404 };
+    if (error.code === 'P2003') return { error: 'O grupo possui produtos vinculados.' };
+    throw error;
+  }
 }
 
 async function listActivePromotions(timestamp = new Date()) {
-  const promotions = await prisma.promotion.findMany({ where: { product: { active: true } }, include: { product: true } });
+  const promotions = await prisma.promotion.findMany({ where: { product: { active: true, category: { notIn: ['Complementos', 'Acompanhamentos', 'Molhos'] } } }, include: { product: true } });
   return promotions.filter(promotion => promotionIsActive(promotion, timestamp)).map(promotion => normalizeProduct(promotion.product, [promotion], timestamp));
 }
 
 async function getCatalogProduct(id, timestamp = new Date()) {
   const product = await prisma.product.findUnique({ where: { id: Number(id) } });
-  if (!product?.active) return null;
+  if (!product?.active || ['Complementos', 'Acompanhamentos', 'Molhos'].includes(product.category)) return null;
   const promotions = await prisma.promotion.findMany({ where: { productId: product.id } });
   const activePromotion = promotions.find(promotion => promotionIsActive(promotion, timestamp));
   return { name: product.name, price: activePromotion ? salePrice(product, activePromotion) : moneyNumber(product.price) };
 }
 
 async function getAddonPrice(name) {
-  const addon = await prisma.addon.findUnique({ where: { name } });
-  return addon ? moneyNumber(addon.price) : null;
+  const product = await prisma.product.findFirst({ where: { name, active: true, category: { in: ['Bebidas', 'Complementos', 'Acompanhamentos', 'Molhos'] } }, orderBy: { id: 'asc' } });
+  return product ? moneyNumber(product.price) : null;
+}
+
+async function removeUnusedMenuImage(image, exceptProductId) {
+  if (!/^\/img\/menu\/[a-z0-9-]+\.(jpg|png|webp)$/i.test(image)) return;
+  const references = await prisma.product.count({ where: { image, ...(exceptProductId ? { id: { not: exceptProductId } } : {}) } });
+  if (references) return;
+  try { fs.unlinkSync(path.join(__dirname, '..', '..', 'img', 'menu', path.basename(image))); } catch {}
 }
 
 async function saveProduct(id, payload) {
   const parsed = productSchema.safeParse(payload);
   if (!parsed.success) return { error: 'Confira nome, categoria, descrição, imagem e valor.', details: parsed.error.flatten() };
+  if (!await prisma.productGroup.findUnique({ where: { name: parsed.data.category } })) return { error: 'Selecione um grupo cadastrado.' };
+  if (!parsed.data.image && !['Complementos', 'Acompanhamentos', 'Molhos'].includes(parsed.data.category)) return { error: 'Selecione uma imagem para produtos da vitrine.' };
   if (id) {
     try {
+      const previous = await prisma.product.findUnique({ where: { id: Number(id) }, select: { image: true } });
       const product = await prisma.product.update({ where: { id: Number(id) }, data: { ...parsed.data, price: parsed.data.price } });
+      if (previous?.image && previous.image !== product.image) await removeUnusedMenuImage(previous.image, product.id);
       return { data: normalizeProduct(product) };
     } catch (error) {
       if (error.code === 'P2025') return { error: 'Produto não encontrado.', status: 404 };
@@ -228,7 +258,11 @@ async function saveProduct(id, payload) {
 }
 
 async function deleteProduct(id) {
-  try { await prisma.product.delete({ where: { id: Number(id) } }); return true; }
+  try {
+    const product = await prisma.product.delete({ where: { id: Number(id) } });
+    await removeUnusedMenuImage(product.image);
+    return true;
+  }
   catch (error) { if (error.code === 'P2025') return false; throw error; }
 }
 
@@ -271,24 +305,13 @@ async function deletePromotion(id) {
 }
 
 async function getAddons() {
-  const addons = await prisma.addon.findMany({ orderBy: [{ group: 'asc' }, { name: 'asc' }] });
   const groups = { drinks: [], sides: [], sauces: [] };
-  for (const addon of addons) groups[addon.group].push({ name: addon.name, price: moneyNumber(addon.price) });
+  const products = await prisma.product.findMany({ where: { active: true, category: { in: ['Bebidas', 'Complementos', 'Acompanhamentos', 'Molhos'] } }, orderBy: [{ category: 'asc' }, { name: 'asc' }] });
+  for (const product of products) {
+    const group = product.category === 'Bebidas' ? 'drinks' : product.category === 'Molhos' ? 'sauces' : 'sides';
+    groups[group].push({ id: product.id, name: product.name, price: moneyNumber(product.price), image: product.image });
+  }
   return groups;
-}
-
-async function addAddon(payload) {
-  const parsed = z.object({ group: z.enum(['drinks', 'sides', 'sauces']), name: z.string().trim().min(2).max(80), price: z.number().finite().min(0).max(10000) }).safeParse(payload);
-  if (!parsed.success) return { error: 'Confira grupo, nome e valor do complemento.' };
-  try {
-    const addon = await prisma.addon.create({ data: { ...parsed.data, price: parsed.data.price } });
-    return { data: { ...addon, price: moneyNumber(addon.price) } };
-  } catch (error) { if (error.code === 'P2002') return { error: 'Já existe um complemento com esse nome.' }; throw error; }
-}
-
-async function deleteAddon(group, name) {
-  try { await prisma.addon.delete({ where: { name, group } }); return true; }
-  catch (error) { if (error.code === 'P2025') return false; throw error; }
 }
 
 async function recordOrder(order) {
@@ -308,9 +331,25 @@ async function recordOrder(order) {
   });
 }
 
+async function updateOrderPayment(orderId, payment) {
+  if (!Number.isFinite(payment.amount) || payment.amount < 0) return false;
+  try {
+    const order = await prisma.order.findUnique({ where: { id: orderId }, select: { total: true } });
+    if (!order || Math.abs(moneyNumber(order.total) - payment.amount) > 0.01) return false;
+    await prisma.order.update({
+      where: { id: orderId },
+      data: { paymentStatus: payment.status, paymentData: encryptJson(payment) }
+    });
+    return true;
+  } catch (error) {
+    if (error.code === 'P2025') return false;
+    throw error;
+  }
+}
+
 async function listOrders(period = 'daily') {
   if (!orderPeriods.has(period)) period = 'daily';
-  const orders = await prisma.order.findMany({ where: { createdAt: { gte: startOfPeriod(period) } }, include: { items: true }, orderBy: { createdAt: 'desc' } });
+  const orders = await prisma.order.findMany({ where: { createdAt: { gte: startOfPeriod(period) }, OR: [{ paymentMethod: { not: 'mercadopago' } }, { paymentStatus: 'approved' }] }, include: { items: true }, orderBy: { createdAt: 'desc' } });
   return orders.map(order => normalizeOrder(order));
 }
 
@@ -368,7 +407,7 @@ function startOfPeriod(period, now = new Date()) {
 
 async function getDashboard(period = 'daily') {
   if (!orderPeriods.has(period)) period = 'daily';
-  const where = { createdAt: { gte: startOfPeriod(period) } };
+  const where = { createdAt: { gte: startOfPeriod(period) }, OR: [{ paymentMethod: { not: 'mercadopago' } }, { paymentStatus: 'approved' }] };
   const [summary, orders] = await Promise.all([
     prisma.order.aggregate({ where, _count: { _all: true }, _sum: { total: true, deliveryFee: true } }),
     prisma.order.findMany({ where, include: { items: true }, orderBy: { createdAt: 'desc' }, take: 100 })
@@ -382,4 +421,4 @@ async function getDashboard(period = 'daily') {
   };
 }
 
-module.exports = { addAddon, addDocument, addEmployee, addTimeEntry, deleteAddon, deleteEmployee, deleteProduct, deletePromotion, getAddonPrice, getAddons, getCatalogProduct, getDashboard, getDocument, getEmployee, getMenuSettings, initializeAdminStore, listActivePromotions, listEmployees, listOrders, listProducts, lookupOrders, recordOrder, saveProduct, savePromotion, scheduleVacation, updateEmployee, updateOrderStatus };
+module.exports = { addDocument, addEmployee, addTimeEntry, createProductGroup, deleteEmployee, deleteProduct, deleteProductGroup, deletePromotion, getAddonPrice, getAddons, getCatalogProduct, getDashboard, getDocument, getEmployee, getMenuSettings, initializeAdminStore, listActivePromotions, listEmployees, listOrders, listProducts, lookupOrders, recordOrder, saveProduct, savePromotion, scheduleVacation, updateEmployee, updateOrderPayment, updateOrderStatus };

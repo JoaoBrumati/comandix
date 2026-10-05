@@ -7,12 +7,6 @@ datasource db {
   url      = env("DATABASE_URL")
 }
 
-enum AddonGroup {
-  drinks
-  sides
-  sauces
-}
-
 enum OrderStatus {
   new
   preparing
@@ -80,17 +74,15 @@ model Product {
   tag         String      @default("Do cardápio") @db.VarChar(40)
   active      Boolean     @default(true)
   promotions  Promotion[]
+  productGroup ProductGroup @relation(fields: [category], references: [name], onDelete: Restrict, onUpdate: Cascade)
 
   @@index([active, category])
 }
 
-model Addon {
-  id    String     @id @default(uuid()) @db.Uuid
-  name  String     @unique @db.VarChar(80)
-  group AddonGroup
-  price Decimal    @db.Decimal(10, 2)
-
-  @@index([group])
+model ProductGroup {
+  id       Int       @id @default(autoincrement())
+  name     String    @unique @db.VarChar(50)
+  products Product[]
 }
 
 model Promotion {

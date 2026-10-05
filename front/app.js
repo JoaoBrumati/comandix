@@ -1,10 +1,6 @@
 const imageBase = window.location.protocol === 'file:' ? '../img/' : '/img/';
 let foods = [];
-let addonGroups = {
-  drinks: [{ name: 'Coca-Cola 350ml', price: 7 }, { name: 'Guaraná 350ml', price: 7 }, { name: 'Água mineral', price: 4 }],
-  sides: [{ name: 'Batata frita', price: 8 }, { name: 'Anéis de cebola', price: 10 }, { name: 'Salada fresca', price: 6 }],
-  sauces: [{ name: 'Maionese da casa', price: 2 }, { name: 'Molho barbecue', price: 2 }, { name: 'Ketchup', price: 1 }]
-};
+let addonGroups = { drinks: [], sides: [], sauces: [] };
 let cart = [];
 const orderStatusFlow = [
   { id: 'new', label: 'Pedido realizado' },
@@ -48,7 +44,7 @@ function renderCategories() {
   row.innerHTML = `<button class="category active" data-category="Todos"><span>✦</span>Todos</button>${categories.map(category => `<button class="category" data-category="${escapeText(category)}"><span>${icons[category] || '✦'}</span>${escapeText(category)}</button>`).join('')}`;
 }
 function renderAddonOptions(elementId, options, type) {
-  document.querySelector(`#${elementId}`).innerHTML = options.map(option => `<label class="option-item"><input type="checkbox" name="${type}" value="${option.name}" data-price="${option.price}" /><span>${option.name}</span><small>+ ${money(option.price)}</small></label>`).join('');
+  document.querySelector(`#${elementId}`).innerHTML = options.map(option => `<label class="option-item">${option.image ? `<img src="${escapeText(option.image)}" alt="" />` : ''}<input type="checkbox" name="${type}" value="${escapeText(option.name)}" data-price="${option.price}" /><span>${escapeText(option.name)}</span><small>+ ${money(option.price)}</small></label>`).join('');
 }
 function getDetailTotal() {
   const extras = [...document.querySelectorAll('.product-detail input:checked')].reduce((sum, input) => sum + Number(input.dataset.price), 0);
@@ -85,7 +81,7 @@ function addConfiguredProduct() {
   cart.push({ ...detailProduct, id: Date.now(), originalId: detailProduct.id, price: unitPrice, quantity: detailQuantity, addons });
   renderCart();
   closeProduct();
-  showToast(`${detailProduct.name} foi adicionado com seus adicionais`);
+  showToast('Pedido adicionado!');
 }
 function renderOrderTracking(order) {
   const orderCode = order.orderCode || order.orderId?.slice(0, 8).toUpperCase();
@@ -99,9 +95,11 @@ function renderOrderTracking(order) {
   }).join('');
   const items = order.items?.map(item => `${item.quantity}× ${item.name}${item.addons?.length ? ` (${item.addons.join(', ')})` : ''}`).join('<br>') || '';
   const total = money(Number(order.total || 0));
+  const paymentStatuses = { pending: 'Aguardando pagamento', approved: 'Pago', authorized: 'Autorizado', in_process: 'Em processamento', in_mediation: 'Em análise', rejected: 'Recusado', cancelled: 'Cancelado', refunded: 'Reembolsado', charged_back: 'Contestado' };
   const statusMessage = order.status === 'cancelled' ? '<p class="lookup-feedback">Este pedido foi cancelado.</p>' : '';
   document.querySelector('#order-tracking').innerHTML = `
     <div class="tracking-summary"><div><span>Pedido</span><strong>#${orderCode}</strong></div><div><span>Valor total</span><strong>${total}</strong></div></div>
+    <div class="tracking-summary"><div><span>Pagamento</span><strong>${escapeText(paymentStatuses[order.payment?.status] || 'Aguardando confirmação')}</strong></div></div>
     ${timeline}
     ${statusMessage}
     <div class="tracking-summary"><div><span>Itens</span><strong>${escapeText(order.items?.length ? order.items.length : 0)} itens</strong></div><div><span>Atualização</span><strong>${orderStatusLabels[order.status] || 'Pedido em análise'}</strong></div></div>
@@ -306,9 +304,8 @@ function closePayment() {
 }
 function paymentPayload(method) {
   const payload = { customer: { name: document.querySelector('#customer-name').value.trim(), phone: document.querySelector('#customer-phone').value.replace(/\D/g, ''), cep: document.querySelector('#delivery-cep').value.replace(/\D/g, ''), street: document.querySelector('#delivery-street').value.trim(), number: document.querySelector('#delivery-number').value.trim(), neighborhood: document.querySelector('#delivery-neighborhood').value.trim(), city: document.querySelector('#delivery-city').value.trim(), state: document.querySelector('#delivery-state').value.trim().toUpperCase(), residenceType: document.querySelector('[name="residence-type"]:checked').value, complement: document.querySelector('#delivery-complement').value.trim(), reference: document.querySelector('#delivery-reference').value.trim() }, items: cart.map(item => ({ productId: item.originalId || item.id, quantity: item.quantity, addons: item.addons || [] })) };
-  if (method === 'pix') payload.payment = { method: 'pix' };
+  if (method === 'mercadopago') payload.payment = { method: 'mercadopago' };
   if (method === 'cash') payload.payment = { method: 'cash', changeFor: Number((document.querySelector('#cash-change').value || '').replace(',', '.')) || undefined };
-  if (method === 'card') { const last4 = document.querySelector('#card-last4').value.trim(); if (!/^\d{4}$/.test(last4)) throw new Error('Informe os 4 últimos dígitos do cartão.'); payload.payment = { method: 'card', cardToken: `browser-token-${last4}-${Date.now()}` }; }
   return payload;
 }
 async function confirmPayment() {
@@ -322,6 +319,11 @@ async function confirmPayment() {
     try { result = responseText ? JSON.parse(responseText) : null; } catch { result = null; }
     if (!result) throw new Error(`Servidor indisponível ou resposta inválida (HTTP ${response.status}). Inicie o projeto com npm start.`);
     if (!response.ok) throw new Error(result.error || 'Não foi possível criar o pedido.');
+    if (method === 'mercadopago') {
+      if (!result.payment?.checkoutUrl) throw new Error('O checkout seguro não retornou um endereço válido.');
+      window.location.assign(result.payment.checkoutUrl);
+      return;
+    }
     cart = [];
     renderCart();
     closePayment();
@@ -331,11 +333,11 @@ async function confirmPayment() {
     document.querySelector('#lookup-phone').value = '';
     document.querySelector('[data-page="orders"]').click();
     await lookupOrderByReference();
-    showToast(method === 'pix' ? `Pedido #${orderCode} criado. PIX: ${result.payment.copyPaste}` : `Pedido #${orderCode} criado com sucesso!`);
+    showToast(`Pedido #${orderCode} criado com sucesso!`);
   } catch (requestError) { error.textContent = requestError instanceof TypeError ? 'Não foi possível conectar ao servidor. Confira se o projeto está rodando com npm start.' : requestError.message || 'Não foi possível concluir o pagamento.'; }
 }
 function showToast(message) { const toast = document.querySelector('#toast'); toast.textContent = message; toast.classList.add('show'); setTimeout(() => toast.classList.remove('show'), 2200); }
-function addToCart(id) { const food = foods.find(item => item.id === id); const existing = cart.find(item => item.id === id); existing ? existing.quantity++ : cart.push({ ...food, quantity: 1 }); renderCart(); showToast(`${food.name} foi adicionado ao carrinho`); }
+function addToCart(id) { const food = foods.find(item => item.id === id); const existing = cart.find(item => item.id === id); existing ? existing.quantity++ : cart.push({ ...food, quantity: 1 }); renderCart(); showToast('Pedido adicionado!'); }
 
 async function loadStorefrontCatalog() {
   try {
@@ -407,3 +409,12 @@ const initialPage = Object.keys(pageHashes).find(page => pageHashes[page] === in
 activatePage(initialPage);
 
 renderFoods(); renderOrders(); renderCart(); loadStorefrontCatalog();
+const checkoutReturn = new URLSearchParams(window.location.search);
+const returnedOrderCode = checkoutReturn.get('order_id');
+if (returnedOrderCode) {
+  document.querySelector('#lookup-order-id').value = returnedOrderCode;
+  activatePage('orders');
+  history.replaceState(null, '', `#${pageHashes.orders}`);
+  document.querySelector('#lookup-feedback').textContent = 'Retorno do pagamento recebido. Consultando o status confirmado pelo Mercado Pago...';
+  lookupOrderByReference();
+}

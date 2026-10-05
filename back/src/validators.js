@@ -16,9 +16,8 @@ const orderSchema = z.object({
   }),
   items: z.array(z.object({ productId: z.number().int().positive(), quantity: z.number().int().min(1).max(20), addons: z.array(z.string().trim().min(1).max(60)).max(10).default([]) })).min(1).max(30),
   payment: z.discriminatedUnion('method', [
-    z.object({ method: z.literal('pix') }),
     z.object({ method: z.literal('cash'), changeFor: z.number().positive().optional() }),
-    z.object({ method: z.literal('card'), cardToken: z.string().min(12).max(300) })
+    z.object({ method: z.literal('mercadopago') })
   ])
 });
 
