@@ -1,4 +1,4 @@
-# anota.ai
+# Comandix
 
 Aplicação de pedidos com catálogo, adicionais e checkout.
 

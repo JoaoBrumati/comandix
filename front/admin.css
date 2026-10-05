@@ -199,6 +199,46 @@
   color: var(--white);
 }
 
+.security-log-panel {
+  margin-top: 18px;
+  padding: 16px 18px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--white);
+}
+
+.security-log-panel h3 {
+  margin: 0 0 12px;
+  font: 600 14px 'Space Grotesk', sans-serif;
+}
+
+.security-log-list {
+  display: grid;
+  gap: 8px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.security-log-list li {
+  display: grid;
+  gap: 4px;
+  padding: 8px 10px;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  background: #fafaf7;
+  font-size: 10px;
+}
+
+.security-log-list strong {
+  font-size: 11px;
+}
+
+.security-log-list span,
+.security-log-list small {
+  color: var(--muted);
+}
+
 .admin-metrics {
   display: grid;
   grid-template-columns: repeat(5, minmax(0, 1fr));

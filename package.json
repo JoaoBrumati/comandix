@@ -2,7 +2,7 @@
   "name": "anotaai",
   "version": "1.0.0",
   "private": true,
-  "description": "Sistema de pedidos e pagamento do anota.ai",
+  "description": "Sistema de pedidos e pagamento do Comandix",
   "scripts": {
     "start": "node back/server.js",
     "dev": "node --watch back/server.js",

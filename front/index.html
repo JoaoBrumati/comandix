@@ -4,7 +4,7 @@
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <meta name="theme-color" content="#f7f7f4" />
-  <title>anota.ai — Seu pedido, do seu jeito</title>
+  <title>Comandix — Seu pedido, do seu jeito</title>
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
   <link href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600;700&family=Space+Grotesk:wght@500;600;700&display=swap" rel="stylesheet" />
@@ -15,9 +15,9 @@
 <body>
   <div class="app-shell">
     <aside class="sidebar" aria-label="Navegação principal">
-      <a class="brand" href="#inicio" data-page="home" aria-label="anota.ai início">
-        <span class="brand-mark">a</span>
-        <span>anota<span class="brand-dot">.</span>ai</span>
+      <a class="brand" href="#inicio" data-page="home" aria-label="Comandix início">
+        <span class="brand-mark">C</span>
+        <span>Comandix</span>
       </a>
 
       <nav class="main-nav">
@@ -45,7 +45,7 @@
     <main class="main-content">
       <header class="topbar compact-topbar">
         <button class="mobile-menu" id="mobile-menu" aria-label="Abrir menu">☰</button>
-        <a class="brand compact-brand" href="#inicio" data-page="home"><span class="brand-mark">a</span><span>anota<span class="brand-dot">.</span>ai</span></a>
+        <a class="brand compact-brand" href="#inicio" data-page="home"><span class="brand-mark">C</span><span>Comandix</span></a>
       </header>
 
       <div class="page-view active" id="home-page">
@@ -85,7 +85,7 @@
           <span class="section-kicker">ÁREA RESTRITA</span>
           <h1>Administração</h1>
           <p>Acesse com a senha administrativa configurada no servidor.</p>
-          <form id="admin-login-form"><label>Usuário<input id="admin-username" autocomplete="username" value="admin" required /></label><label>Senha do administrador<input id="admin-password" type="password" autocomplete="current-password" required /></label><button type="submit">Entrar no painel <span>→</span></button></form>
+          <form id="admin-login-form"><label>Usuário<input id="admin-username" autocomplete="username" value="admin" required /></label><label>Senha do administrador<input id="admin-password" type="password" autocomplete="current-password" required /></label><label>Código 2FA (opcional)<input id="admin-otp" type="text" inputmode="numeric" autocomplete="one-time-code" placeholder="123456" maxlength="6" /></label><button type="submit">Entrar no painel <span>→</span></button></form>
           <p class="admin-feedback" id="admin-login-feedback" role="alert"></p>
         </section>
         <section class="admin-dashboard-view" id="admin-dashboard-view" hidden>
@@ -93,7 +93,7 @@
           <section class="admin-panel active" id="admin-dashboard-panel">
             <div class="dashboard-controls"><div class="admin-periods" aria-label="Período do dashboard"><button class="active" data-period="daily">Diário</button><button data-period="weekly">Semanal</button><button data-period="monthly">Mensal</button><button data-period="yearly">Anual</button></div><label>Exibir<select id="dashboard-filter"><option value="all">Todos</option><option value="orders">Pedidos</option><option value="revenue">Faturamento</option></select></label></div>
             <div class="admin-metrics" id="admin-metrics"></div>
-            <section class="admin-data-section" id="admin-orders-section"><div class="admin-section-heading"><div><span class="section-kicker">VENDAS</span><h2>Pedidos do período</h2></div></div><div class="orders-summary" id="admin-orders-summary"></div></section>
+            <section class="admin-data-section" id="admin-orders-section"><div class="admin-section-heading"><div><span class="section-kicker">VENDAS</span><h2>Pedidos do período</h2></div></div><div class="orders-summary" id="admin-orders-summary"></div><div class="security-log-panel" id="admin-security-log"></div></section>
           </section>
           <section class="admin-panel" id="admin-orders-panel">
             <div class="admin-section-heading"><div><span class="section-kicker">FLUXO DA COZINHA</span><h2>Kanban de pedidos</h2></div></div>

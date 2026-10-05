@@ -27,8 +27,19 @@ const formatCurrency = value => `R$ ${Number(value || 0).toFixed(2).replace('.',
 const formatDate = value => value ? new Date(value).toLocaleDateString('pt-BR') : 'Não programada';
 const formatDateTime = value => value ? new Date(value).toLocaleString('pt-BR', { dateStyle: 'short', timeStyle: 'short' }) : 'Nenhum ponto registrado';
 
+function getCsrfTokenFromCookie() {
+  const match = document.cookie.split(';').map(cookie => cookie.trim()).find(cookie => cookie.startsWith('anotaai_csrf='));
+  return match ? decodeURIComponent(match.slice('anotaai_csrf='.length)) : '';
+}
+
 async function adminRequest(url, options = {}) {
-  const response = await fetch(url, { credentials: 'same-origin', ...options });
+  const method = (options.method || 'GET').toUpperCase();
+  const headers = new Headers(options.headers || {});
+  if (['POST', 'PUT', 'PATCH', 'DELETE'].includes(method) && !headers.has('X-CSRF-Token')) {
+    const csrfToken = getCsrfTokenFromCookie();
+    if (csrfToken) headers.set('X-CSRF-Token', csrfToken);
+  }
+  const response = await fetch(url, { credentials: 'same-origin', ...options, headers });
   if (response.status === 204) return null;
   const body = await response.json().catch(() => ({}));
   if (!response.ok) {
@@ -93,6 +104,16 @@ async function navigateAdminSection(section) {
   }
 }
 
+async function loadSecurityLogs() {
+  try {
+    const { logs = [] } = await adminRequest('/api/admin/security/logs');
+    const logList = logs.slice(-5).reverse().map(log => `<li><strong>${escapeHtml(log.event || 'event')}</strong><span>${escapeHtml(log.timestamp || 'agora')}</span><small>${escapeHtml(log.ip || 'desconhecido')}</small></li>`).join('');
+    document.querySelector('#admin-security-log').innerHTML = `<h3>Últimas ocorrências</h3><ul class="security-log-list">${logList || '<li><span>Sem registros ainda</span></li>'}</ul>`;
+  } catch {
+    document.querySelector('#admin-security-log').innerHTML = '<h3>Últimas ocorrências</h3><ul class="security-log-list"><li><span>Não foi possível carregar os logs</span></li></ul>';
+  }
+}
+
 async function loadDashboard() {
   const data = await adminRequest(`/api/admin/dashboard?period=${selectedPeriod}`);
   const metrics = [
@@ -102,6 +123,7 @@ async function loadDashboard() {
   ];
   document.querySelector('#admin-metrics').innerHTML = metrics.map(([title, value, note], index) => `<article class="admin-metric" data-dashboard-group="${index === 0 ? 'orders' : 'revenue'}"><span>${title}</span><strong>${value}</strong><small>${note}</small></article>`).join('');
   document.querySelector('#admin-orders-summary').innerHTML = data.orders.length ? data.orders.map(order => `<article class="admin-order-row"><div><strong>${escapeHtml(order.items.map(item => `${item.quantity}x ${item.name}`).join(', '))}</strong><small>${formatDateTime(order.createdAt)} · ${escapeHtml(order.payment.method.toUpperCase())}</small></div><span>Itens ${formatCurrency(order.subtotal)}<small>Entrega ${formatCurrency(order.deliveryFee)}</small></span><b>${formatCurrency(order.total)}</b></article>`).join('') : '<div class="admin-empty">Ainda não há pedidos registrados neste período.</div>';
+  await loadSecurityLogs();
   applyDashboardFilter();
 }
 
@@ -467,8 +489,10 @@ document.querySelector('#admin-login-form').addEventListener('submit', async eve
   event.preventDefault();
   adminLoginFeedback.textContent = '';
   try {
-    await adminRequest('/api/admin/login', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ username: document.querySelector('#admin-username').value.trim(), password: document.querySelector('#admin-password').value }) });
+    const payload = { username: document.querySelector('#admin-username').value.trim(), password: document.querySelector('#admin-password').value, otp: document.querySelector('#admin-otp')?.value || '' };
+    await adminRequest('/api/admin/login', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload) });
     document.querySelector('#admin-password').value = '';
+    document.querySelector('#admin-otp').value = '';
     await showAdminDashboard();
   } catch (error) { adminLoginFeedback.textContent = error.message; }
 });

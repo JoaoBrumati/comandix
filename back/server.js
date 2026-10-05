@@ -10,9 +10,17 @@ const rateLimit = require('express-rate-limit');
 const { lookupCep, quoteDelivery, publicAddress } = require('./src/delivery');
 const { orderSchema } = require('./src/validators');
 const adminStore = require('./src/admin');
+const { hashPassword, verifyPassword, buildAdminCookie, buildCsrfCookie, clearAdminCookie, clearCsrfCookie, cookieValue, generateCsrfToken, getClientIp, recordFailedLogin, isBlockedIp, clearFailedLogin, logAdminAuditEvent, findRecentAuditLogs, isAllowedAdminIp, verifyTotpCode, buildSecurityAlertPayload, validateProductionConfig } = require('./src/security');
 const { createCheckoutPreference, fetchMercadoPagoPayment, verifyWebhookSignature } = require('./src/payments');
 
+const productionConfig = validateProductionConfig(process.env);
+if (process.env.NODE_ENV === 'production' && !productionConfig.ok) {
+  console.error('Configuração de produção inválida:', productionConfig.errors.join(' | '));
+  process.exit(1);
+}
+
 const app = express();
+app.set('trust proxy', 1);
 const port = Number(process.env.PORT || 3000);
 const clientOrigin = process.env.CLIENT_ORIGIN || `http://localhost:${port}`;
 const frontDir = path.join(__dirname, '..', 'front');
@@ -48,18 +56,45 @@ app.use(helmet({
       frameAncestors: ["'self'"],
       formAction: ["'self'"]
     }
-  }
+  },
+  hsts: {
+    maxAge: 31536000,
+    includeSubDomains: true,
+    preload: true
+  },
+  referrerPolicy: { policy: 'no-referrer' },
+  crossOriginResourcePolicy: { policy: 'same-origin' }
 }));
-app.use(cors({ origin: clientOrigin, methods: ['GET', 'POST'], credentials: false }));
+app.use((request, response, next) => {
+  response.setHeader('X-Content-Type-Options', 'nosniff');
+  response.setHeader('X-Frame-Options', 'DENY');
+  response.setHeader('Permissions-Policy', 'geolocation=(), microphone=(), camera=()');
+  next();
+});
+app.use(cors({
+  origin: clientOrigin,
+  methods: ['GET', 'POST', 'PATCH', 'DELETE', 'PUT', 'OPTIONS'],
+  allowedHeaders: ['Content-Type', 'Authorization', 'X-CSRF-Token'],
+  credentials: false,
+  optionsSuccessStatus: 204
+}));
 app.use(express.json({ limit: '20kb', strict: true }));
-app.use(rateLimit({
+const globalRateLimiter = rateLimit({
   windowMs: 15 * 60 * 1000,
   limit: 120,
   standardHeaders: true,
   legacyHeaders: false,
   handler: (_request, response) => response.status(429).json({ error: 'Muitas solicitações. Aguarde um momento e tente novamente.' }),
   skip: request => request.method === 'GET' && request.path === '/api/admin/orders'
-}));
+});
+const adminLoginLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000,
+  limit: 10,
+  standardHeaders: true,
+  legacyHeaders: false,
+  message: { error: 'Muitas tentativas de login. Tente novamente em alguns minutos.' }
+});
+app.use(globalRateLimiter);
 app.use(['/api/catalog', '/api/promotion', '/api/admin', '/api/orders', '/api/payments'], (_request, response, next) => {
   if (!databaseReady) return response.status(503).json({ error: 'PostgreSQL indisponível. Configure DATABASE_URL, aplique as migrations e tente novamente.' });
   next();
@@ -98,23 +133,16 @@ app.get('/api/public-config', (_request, response) => response.json({ whatsapp: 
 app.get('/api/catalog', asyncRoute(async (_request, response) => response.json({ products: await adminStore.listProducts(), addons: await adminStore.getAddons() })));
 app.get('/api/promotion', asyncRoute(async (_request, response) => response.json(await adminStore.listActivePromotions())));
 
-function safePasswordMatch(candidate, expected) {
-  const candidateHash = crypto.createHash('sha256').update(candidate).digest();
-  const expectedHash = crypto.createHash('sha256').update(expected).digest();
-  return crypto.timingSafeEqual(candidateHash, expectedHash) && candidate.length === expected.length;
-}
-
-function cookieValue(request, name) {
-  const entry = (request.headers.cookie || '').split(';').map(value => value.trim()).find(value => value.startsWith(`${name}=`));
-  return entry ? decodeURIComponent(entry.slice(name.length + 1)) : '';
-}
-
 function requireAdmin(request, response, next) {
   const sessionToken = cookieValue(request, 'anotaai_admin');
   const session = adminSessions.get(sessionToken);
   if (!session || session.expiresAt < Date.now()) {
     adminSessions.delete(sessionToken);
     return response.status(401).json({ error: 'Acesso administrativo necessário.' });
+  }
+  const clientIp = getClientIp(request);
+  if (!isAllowedAdminIp(clientIp, process.env.ADMIN_ALLOWED_IPS)) {
+    return response.status(403).json({ error: 'IP não autorizado para o painel administrativo.' });
   }
   next();
 }
@@ -125,30 +153,84 @@ function requireSameOrigin(request, response, next) {
   next();
 }
 
-app.post('/api/admin/login', requireSameOrigin, asyncRoute(async (request, response) => {
-  const expectedPassword = process.env.ADMIN_PASSWORD || '';
-  if (expectedPassword.length < 12) return response.status(503).json({ error: 'Configure uma ADMIN_PASSWORD com pelo menos 12 caracteres no .env.' });
+function requireCsrf(request, response, next) {
+  if (!['POST', 'PUT', 'PATCH', 'DELETE'].includes(request.method)) return next();
+  const sessionToken = cookieValue(request, 'anotaai_admin');
+  const session = adminSessions.get(sessionToken);
+  const expectedToken = session?.csrfToken || '';
+  const tokenFromHeader = request.get('x-csrf-token') || request.get('x-xsrf-token');
+  const tokenFromCookie = cookieValue(request, 'anotaai_csrf');
+  if (!expectedToken || !tokenFromHeader || !tokenFromCookie || tokenFromHeader.length !== tokenFromCookie.length || tokenFromHeader.length !== expectedToken.length) {
+    return response.status(403).json({ error: 'Token CSRF inválido ou ausente.' });
+  }
+  const headerBuffer = Buffer.from(tokenFromHeader);
+  const cookieBuffer = Buffer.from(tokenFromCookie);
+  const expectedBuffer = Buffer.from(expectedToken);
+  if (!crypto.timingSafeEqual(headerBuffer, cookieBuffer) || !crypto.timingSafeEqual(headerBuffer, expectedBuffer)) {
+    return response.status(403).json({ error: 'Token CSRF inválido ou ausente.' });
+  }
+  next();
+}
+
+app.post('/api/admin/login', requireSameOrigin, adminLoginLimiter, asyncRoute(async (request, response) => {
+  const clientIp = getClientIp(request);
+  if (!isAllowedAdminIp(clientIp, process.env.ADMIN_ALLOWED_IPS)) {
+    logAdminAuditEvent('admin_ip_blocked', request, { ip: clientIp, reason: 'not_in_whitelist' });
+    return response.status(403).json({ error: 'Este IP não está autorizado para acessar o painel administrativo.' });
+  }
+  if (isBlockedIp(clientIp)) return response.status(403).json({ error: 'IP temporariamente bloqueado por muitas tentativas de login.' });
+  const expectedPassword = process.env.ADMIN_PASSWORD_HASH || (process.env.ADMIN_PASSWORD ? hashPassword(process.env.ADMIN_PASSWORD) : '');
+  if (!expectedPassword || expectedPassword.length < 32) return response.status(503).json({ error: 'Configure ADMIN_PASSWORD ou ADMIN_PASSWORD_HASH com uma senha forte no .env.' });
   const expectedUser = process.env.ADMIN_USER || 'admin';
   const username = typeof request.body?.username === 'string' ? request.body.username.trim() : '';
   const password = typeof request.body?.password === 'string' ? request.body.password : '';
-  if (username.toLowerCase() !== expectedUser.toLowerCase() || !safePasswordMatch(password, expectedPassword)) return response.status(401).json({ error: 'Usuário ou senha administrativa incorretos.' });
+  const otpCode = typeof request.body?.otp === 'string' ? request.body.otp.replace(/\D/g, '') : '';
+  const secret = process.env.ADMIN_2FA_SECRET || '';
+  const credentialsAreValid = username.toLowerCase() === expectedUser.toLowerCase() && verifyPassword(password, expectedPassword);
+  if (!credentialsAreValid) {
+    recordFailedLogin(clientIp);
+    logAdminAuditEvent('admin_login_failed', request, { username, reason: 'invalid_credentials' });
+    const alert = buildSecurityAlertPayload('admin_login_failed', clientIp, { username });
+    if (process.env.ADMIN_ALERT_WEBHOOK) fetch(process.env.ADMIN_ALERT_WEBHOOK, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(alert) }).catch(() => {});
+    return response.status(401).json({ error: 'Usuário ou senha administrativa incorretos.' });
+  }
+  if (secret && !verifyTotpCode(secret, otpCode)) {
+    recordFailedLogin(clientIp);
+    logAdminAuditEvent('admin_login_failed', request, { username, reason: 'invalid_2fa' });
+    return response.status(401).json({ error: 'Código de autenticação em duas etapas inválido.' });
+  }
+  clearFailedLogin(clientIp);
   try { await adminStore.initializeAdminStore(); } catch { return response.status(503).json({ error: 'Não foi possível abrir o PostgreSQL. Confira DATABASE_URL e as migrations.' }); }
   const sessionToken = crypto.randomBytes(32).toString('base64url');
-  adminSessions.set(sessionToken, { expiresAt: Date.now() + sessionDuration });
-  response.setHeader('Set-Cookie', `anotaai_admin=${encodeURIComponent(sessionToken)}; HttpOnly; SameSite=Strict; Path=/api/admin; Max-Age=28800${process.env.NODE_ENV === 'production' ? '; Secure' : ''}`);
-  return response.json({ authenticated: true });
+  const csrfToken = generateCsrfToken();
+  adminSessions.set(sessionToken, { expiresAt: Date.now() + sessionDuration, csrfToken });
+  response.setHeader('Set-Cookie', [buildAdminCookie(sessionToken), buildCsrfCookie(csrfToken)]);
+  logAdminAuditEvent('admin_login_success', request, { username, has2fa: Boolean(secret) });
+  return response.json({ authenticated: true, csrfToken, requiresTwoFactor: Boolean(secret) });
 }));
 
-app.get('/api/admin/session', requireAdmin, (_request, response) => response.json({ authenticated: true }));
+app.get('/api/admin/session', requireAdmin, (request, response) => {
+  const sessionToken = cookieValue(request, 'anotaai_admin');
+  const session = adminSessions.get(sessionToken);
+  return response.json({ authenticated: true, csrfToken: session?.csrfToken || '' });
+});
 app.delete('/api/admin/session', requireSameOrigin, (request, response) => {
+  const clientIp = getClientIp(request);
   adminSessions.delete(cookieValue(request, 'anotaai_admin'));
-  response.setHeader('Set-Cookie', 'anotaai_admin=; HttpOnly; SameSite=Strict; Path=/api/admin; Max-Age=0');
+  logAdminAuditEvent('admin_logout', request, { ip: clientIp });
+  response.setHeader('Set-Cookie', [clearAdminCookie(), clearCsrfCookie()]);
   return response.status(204).end();
 });
 
 const adminApi = express.Router();
 adminApi.use(requireAdmin);
 adminApi.use(requireSameOrigin);
+adminApi.use((request, _response, next) => {
+  logAdminAuditEvent('admin_api_call', request, { path: request.originalUrl });
+  next();
+});
+adminApi.use(requireCsrf);
+adminApi.get('/security/logs', (_request, response) => response.json({ logs: findRecentAuditLogs(25) }));
 adminApi.get('/dashboard', asyncRoute(async (request, response) => response.json(await adminStore.getDashboard(request.query.period))));
 adminApi.get('/orders', asyncRoute(async (request, response) => response.json(await adminStore.listOrders(request.query.period))));
 adminApi.patch('/orders/:id/status', asyncRoute(async (request, response) => {
@@ -339,7 +421,7 @@ app.use((error, _request, response, _next) => {
   return response.status(500).json({ error: 'Erro interno do servidor.' });
 });
 
-app.listen(port, () => console.log(`anota.ai rodando em http://localhost:${port}`));
+app.listen(port, () => console.log(`Comandix rodando em http://localhost:${port}`));
 adminStore.initializeAdminStore()
   .then(() => { databaseReady = true; console.log('PostgreSQL conectado; Prisma pronto.'); })
   .catch(error => { databaseFailure = error; console.error(`PostgreSQL/criptografia indisponível (${error.code || error.name}). Confira DATABASE_URL, DATA_ENCRYPTION_KEY e aplique as migrations.`); });
