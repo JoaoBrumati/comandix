@@ -1,0 +1,31 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" role="img" aria-label="Comandix icon">
+  <title>Comandix Icon</title>
+  <rect x="38" y="38" width="436" height="436" rx="105" fill="#10151B"/>
+
+  <!-- C principal -->
+  <path d="M350 137
+           H262
+           C188 137 137 189 137 256
+           C137 323 188 375 262 375
+           H350
+           C371 375 388 358 388 337
+           C388 316 371 299 350 299
+           H267
+           C235 299 213 283 213 256
+           C213 229 235 213 267 213
+           H350
+           C371 213 388 196 388 175
+           C388 154 371 137 350 137 Z"
+        fill="#A8F21A"/>
+
+  <!-- linhas internas -->
+  <rect x="273" y="231" width="94" height="22" rx="11" fill="#10151B"/>
+  <rect x="258" y="267" width="109" height="22" rx="11" fill="#10151B"/>
+  <rect x="273" y="303" width="94" height="22" rx="11" fill="#10151B"/>
+
+  <!-- linhas de movimento -->
+  <rect x="87" y="198" width="54" height="22" rx="11" fill="#A8F21A"/>
+  <rect x="70" y="245" width="74" height="22" rx="11" fill="#A8F21A"/>
+  <rect x="87" y="292" width="54" height="22" rx="11" fill="#A8F21A"/>
+</svg>

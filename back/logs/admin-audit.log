@@ -40,3 +40,4 @@
 {"timestamp":"2026-10-05T17:45:53.751Z","event":"admin_api_call","ip":"::1","method":"GET","url":"/api/admin/dashboard?period=daily","path":"/api/admin/dashboard?period=daily"}
 {"timestamp":"2026-10-05T17:45:53.755Z","event":"admin_api_call","ip":"::1","method":"GET","url":"/api/admin/security/logs","path":"/api/admin/security/logs"}
 {"timestamp":"2026-10-05T17:55:03.506Z","event":"admin_login_success","ip":"127.0.0.1","method":"UNKNOWN","url":"/api/admin/login","username":"admin"}
+{"timestamp":"2026-10-05T19:52:25.723Z","event":"admin_login_success","ip":"127.0.0.1","method":"UNKNOWN","url":"/api/admin/login","username":"admin"}

@@ -16,20 +16,20 @@
   <div class="app-shell">
     <aside class="sidebar" aria-label="Navegação principal">
       <a class="brand" href="#inicio" data-page="home" aria-label="Comandix início">
-        <span class="brand-mark">C</span>
+        <img class="brand-mark-icon" src="/img/icons/comandix_icone.svg" alt="" aria-hidden="true" />
         <span>Comandix</span>
       </a>
 
       <nav class="main-nav">
         <p class="nav-label">Menu</p>
-        <a href="#inicio" class="nav-item active" data-page="home"><span class="nav-icon">⌂</span>Início</a>
-        <a href="#pedidos" class="nav-item" data-page="orders"><span class="nav-icon">▤</span>Consultar pedido</a>
-        <a href="#carrinho" class="nav-item" data-page="cart"><span class="nav-icon">◷</span>Meu carrinho <span class="nav-count" id="nav-count">2</span></a>
-        <a href="#admin" class="nav-item admin-nav-item" data-page="admin"><span class="nav-icon">▦</span>Administração</a>
+        <a href="#inicio" class="nav-item active" data-page="home"><img class="nav-icon" src="/img/icons/casa.svg" alt="" aria-hidden="true" /><span>Início</span></a>
+        <a href="#pedidos" class="nav-item" data-page="orders"><img class="nav-icon" src="/img/icons/editar.svg" alt="" aria-hidden="true" /><span>Consultar pedido</span></a>
+        <a href="#carrinho" class="nav-item" data-page="cart"><img class="nav-icon" src="/img/icons/carrinho-de-compras.svg" alt="" aria-hidden="true" /><span>Meu carrinho</span><span class="nav-count" id="nav-count">2</span></a>
+        <a href="#admin" class="nav-item admin-nav-item" data-page="admin"><img class="nav-icon" src="/img/icons/administrador.svg" alt="" aria-hidden="true" /><span>Administração</span></a>
         <nav class="admin-subnav" id="admin-subnav" aria-label="Seções administrativas" hidden>
-          <button class="active" data-admin-section="dashboard"><span aria-hidden="true">▥</span>Dashboard</button>
-          <button data-admin-section="orders"><span aria-hidden="true">▤</span>Kanban de pedidos</button>
-          <button data-admin-section="menu"><span class="admin-icon-menu" aria-hidden="true"><i></i><i></i><i></i></span>Cardápio</button>
+          <button class="active" data-admin-section="dashboard"><img class="admin-subnav-icon" src="/img/icons/layout-fluido.svg" alt="" aria-hidden="true" /><span>Dashboard</span></button>
+          <button data-admin-section="orders"><img class="admin-subnav-icon" src="/img/icons/grafico-kanban.svg" alt="" aria-hidden="true" /><span>Kanban de pedidos</span></button>
+          <button data-admin-section="menu"><img class="admin-subnav-icon" src="/img/icons/alinhar-a-esquerda.svg" alt="" aria-hidden="true" /><span>Cardápio</span></button>
         </nav>
       </nav>
 
@@ -45,7 +45,7 @@
     <main class="main-content">
       <header class="topbar compact-topbar">
         <button class="mobile-menu" id="mobile-menu" aria-label="Abrir menu">☰</button>
-        <a class="brand compact-brand" href="#inicio" data-page="home"><span class="brand-mark">C</span><span>Comandix</span></a>
+        <a class="brand compact-brand" href="#inicio" data-page="home" aria-label="Comandix início"><img class="brand-mark-icon" src="/img/icons/comandix_icone.svg" alt="" aria-hidden="true" /><span>Comandix</span></a>
       </header>
 
       <div class="page-view active" id="home-page">

@@ -747,10 +747,9 @@
     font-size: 20px;
   }
 
-  .compact-brand .brand-mark {
+  .compact-brand .brand-mark-icon {
     width: 26px;
     height: 26px;
-    font-size: 18px;
   }
 
   .content-section {
@@ -1024,10 +1023,11 @@
   color: var(--ink);
 }
 
-.admin-subnav button > span:first-child:not(.admin-icon-person):not(.admin-icon-menu) {
-  width: 17px;
-  text-align: center;
-  font-size: 15px;
+.admin-subnav-icon {
+  width: 16px;
+  height: 16px;
+  flex: none;
+  object-fit: contain;
 }
 
 .promotion-list {

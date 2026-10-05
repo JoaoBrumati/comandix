@@ -19,13 +19,13 @@ button { cursor: pointer; border: 0; }
 .app-shell { min-height: 100vh; display: flex; }
 .sidebar { width: var(--sidebar); flex: none; background: var(--white); border-right: 1px solid var(--line); padding: 34px 20px 22px; display: flex; flex-direction: column; }
 .brand { display: inline-flex; align-items: center; gap: 10px; color: var(--ink); text-decoration: none; font: 700 25px 'Space Grotesk', sans-serif; letter-spacing: -1.5px; padding: 0 14px; }
-.brand-mark { width: 30px; height: 30px; display: grid; place-items: center; border-radius: 10px 10px 10px 3px; background: var(--ink); color: var(--lime); font-size: 21px; }
+.brand-mark-icon { display: block; flex: none; width: 30px; height: 30px; object-fit: contain; }
 .brand-dot { color: var(--coral); }
 .main-nav { margin-top: 78px; }
 .nav-label, .section-kicker, .eyebrow { color: var(--muted); font-size: 10px; letter-spacing: 1.5px; font-weight: 700; margin: 0 14px 16px; }
 .nav-item { display: flex; align-items: center; gap: 13px; color: #8e8e87; text-decoration: none; font-size: 13px; font-weight: 600; padding: 13px 14px; border-radius: 10px; margin-bottom: 5px; transition: .2s; }
 .nav-item:hover, .nav-item.active { background: #f1f1ec; color: var(--ink); }
-.nav-icon { width: 20px; text-align: center; font-size: 18px; line-height: 1; }
+.nav-icon { width: 20px; height: 20px; flex: none; object-fit: contain; }
 .nav-count { margin-left: auto; font-size: 11px; min-width: 22px; height: 22px; border-radius: 50%; background: var(--lime); color: var(--lime-dark); display: grid; place-items: center; }
 .sidebar-bottom { margin-top: auto; }
 .support-card { padding: 14px; background: #fbf0e4; border-radius: 12px; display: flex; align-items: center; gap: 9px; font-size: 10px; }
