@@ -1,0 +1,111 @@
+.menu-toolbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  margin: 20px 0;
+}
+
+.menu-toolbar .category-row {
+  flex: 1;
+  min-width: 0;
+  padding: 0;
+}
+
+.food-layout-toggle {
+  display: inline-flex;
+  flex: none;
+  gap: 3px;
+  padding: 3px;
+  border: 1px solid var(--line);
+  border-radius: 9px;
+  background: var(--white);
+}
+
+.layout-option {
+  min-height: 32px;
+  padding: 0 11px;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--muted);
+  font-size: 11px;
+  font-weight: 600;
+}
+
+.layout-option.active {
+  background: var(--ink);
+  color: var(--white);
+}
+
+.food-grid:not(.layout-rectangle) .food-image {
+  height: auto;
+  aspect-ratio: 1;
+}
+
+.food-grid.layout-rectangle {
+  grid-template-columns: minmax(0, 1fr);
+}
+
+.food-grid.layout-rectangle .food-card {
+  display: grid;
+  grid-template-columns: 140px minmax(0, 1fr);
+  grid-template-rows: 122px;
+  align-items: stretch;
+  overflow: hidden;
+  border: 1px solid var(--line);
+  border-radius: 13px;
+  background: var(--white);
+}
+
+.food-grid.layout-rectangle .food-image {
+  height: auto;
+  min-height: 0;
+  border-radius: 0;
+}
+
+.food-grid.layout-rectangle .food-info {
+  display: flex;
+  min-width: 0;
+  flex-direction: column;
+  padding: 15px;
+}
+
+.food-grid.layout-rectangle .food-info p {
+  display: -webkit-box;
+  min-height: 0;
+  overflow: hidden;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+}
+
+.food-grid.layout-rectangle .food-bottom {
+  margin-top: 7px;
+  padding-top: 0;
+}
+
+@media (max-width: 760px) {
+  .menu-toolbar {
+    align-items: flex-start;
+    flex-direction: column;
+  }
+
+  .menu-toolbar .category-row {
+    width: 100%;
+  }
+
+  .food-layout-toggle {
+    align-self: flex-end;
+  }
+
+  .food-grid.layout-rectangle {
+    grid-template-columns: 1fr;
+  }
+}
+
+@media (max-width: 430px) {
+  .food-grid.layout-rectangle .food-card {
+    grid-template-columns: 92px minmax(0, 1fr);
+  }
+
+  .food-grid.layout-rectangle .food-info { padding: 12px; }
+}

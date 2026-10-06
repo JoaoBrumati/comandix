@@ -9,6 +9,7 @@
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
   <link href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600;700&family=Space+Grotesk:wght@500;600;700&display=swap" rel="stylesheet" />
   <link rel="stylesheet" href="styles.css" />
+  <link rel="stylesheet" href="food-layout.css" />
   <link rel="stylesheet" href="search.css" />
   <link rel="stylesheet" href="checkout.css" />
   <link rel="stylesheet" href="admin.css" />
@@ -52,7 +53,13 @@
       <div class="page-view active" id="home-page">
         <section class="content-section">
           <div class="section-heading"><div><span class="section-kicker">PARA COMEÇAR</span><h1 class="menu-title">O que vamos comer</h1></div><div class="search"><span aria-hidden="true">⌕</span><input id="search-input" type="search" placeholder="Buscar no cardápio..." aria-label="Buscar no cardápio" /></div></div>
-          <div class="category-row" id="category-row"></div>
+          <div class="menu-toolbar">
+            <div class="category-row" id="category-row"></div>
+            <div class="food-layout-toggle" role="group" aria-label="Layout dos alimentos">
+              <button class="layout-option active" type="button" data-food-layout="square" aria-pressed="true">Quadrado</button>
+              <button class="layout-option" type="button" data-food-layout="rectangle" aria-pressed="false">Retangular</button>
+            </div>
+          </div>
           <section class="daily-promotion" id="daily-promotion" hidden></section>
           <div class="food-grid" id="food-grid"></div>
         </section>

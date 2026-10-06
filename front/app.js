@@ -1,5 +1,6 @@
 const imageBase = window.location.protocol === 'file:' ? '../img/' : '/img/';
 let foods = [];
+let foodLayout = localStorage.getItem('comandix-food-layout') === 'rectangle' ? 'rectangle' : 'square';
 let addonGroups = { drinks: [], sides: [], sauces: [] };
 let cart = [];
 const orderStatusFlow = [
@@ -39,6 +40,18 @@ function getCategoryOrder(categories) {
     return categories;
   }
 }
+
+function updateFoodLayout(layout) {
+  foodLayout = layout === 'rectangle' ? 'rectangle' : 'square';
+  foodGrid.classList.toggle('layout-rectangle', foodLayout === 'rectangle');
+  document.querySelectorAll('[data-food-layout]').forEach(button => {
+    const active = button.dataset.foodLayout === foodLayout;
+    button.classList.toggle('active', active);
+    button.setAttribute('aria-pressed', String(active));
+  });
+  localStorage.setItem('comandix-food-layout', foodLayout);
+}
+updateFoodLayout(foodLayout);
 
 function renderFoods() {
   const categories = getCategoryOrder([...new Set(foods.map(food => food.category).filter(Boolean))]);
@@ -409,6 +422,7 @@ window.refreshStorefrontCatalog = loadStorefrontCatalog;
 foodGrid.addEventListener('click', event => { const button = event.target.closest('[data-add]'); if (button) { addToCart(Number(button.dataset.add)); return; } const card = event.target.closest('[data-product]'); if (card) openProduct(Number(card.dataset.product)); });
 document.querySelector('#daily-promotion').addEventListener('click', event => { const button = event.target.closest('[data-promotion-add]'); if (button) openProduct(Number(button.dataset.promotionAdd)); });
 searchInput.addEventListener('input', renderFoods);
+document.querySelector('.food-layout-toggle').addEventListener('click', event => { const button = event.target.closest('[data-food-layout]'); if (button) updateFoodLayout(button.dataset.foodLayout); });
 document.querySelector('#category-row').addEventListener('click', event => { const button = event.target.closest('.category'); if (!button) return; document.querySelectorAll('.category').forEach(item => item.classList.remove('active')); button.classList.add('active'); renderFoods(); });
 document.querySelector('#mobile-menu').addEventListener('click', () => document.querySelector('.sidebar').classList.toggle('open'));
 document.querySelector('.sidebar').addEventListener('click', event => { if (event.target.closest('.nav-item')) document.querySelector('.sidebar').classList.remove('open'); });
