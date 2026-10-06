@@ -27,28 +27,57 @@ let quoteTimer;
 let trackedOrderId = '';
 let orderRefreshTimer = null;
 
+function getCategoryOrder(categories) {
+  const saved = localStorage.getItem('comandix-category-order');
+  if (!saved) return categories;
+  try {
+    const parsed = JSON.parse(saved);
+    const ordered = Array.isArray(parsed) ? parsed.filter(item => categories.includes(item)) : [];
+    const remaining = categories.filter(category => !ordered.includes(category));
+    return [...ordered, ...remaining];
+  } catch {
+    return categories;
+  }
+}
+
 function renderFoods() {
-  const activeCategory = document.querySelector('.category.active')?.dataset.category || 'Todos';
+  const categories = getCategoryOrder([...new Set(foods.map(food => food.category).filter(Boolean))]);
+  const activeFromDom = document.querySelector('.category.active')?.dataset.category || '';
+  const activeCategory = categories.includes(activeFromDom) ? activeFromDom : categories[0] || '';
   const query = searchInput.value.toLowerCase().trim();
-  const filtered = foods.filter(food => (activeCategory === 'Todos' || food.category === activeCategory) && `${food.name} ${food.description}`.toLowerCase().includes(query));
+  const filtered = foods.filter(food => (!activeCategory || food.category === activeCategory) && `${food.name} ${food.description}`.toLowerCase().includes(query));
   foodGrid.innerHTML = filtered.length ? filtered.map(food => `
     <article class="food-card" data-product="${food.id}">
-      <div class="food-image"><img src="${escapeText(foodImage(food))}" alt="${escapeText(food.name)}" /><span class="food-tag ${food.promotionPercentage ? 'promotion-tag' : ''}">${food.promotionPercentage ? `Promoção · ${food.promotionPercentage}%` : escapeText(food.tag || food.category)}</span><button class="add-button" data-add="${food.id}" aria-label="Adicionar ${escapeText(food.name)}">+</button></div>
-      <div class="food-info"><h3>${escapeText(food.name)}</h3><p>${escapeText(food.description)}</p><div class="food-bottom"><span class="price">${food.promotionPercentage ? `<s>${money(food.originalPrice)}</s> ` : ''}${money(food.price)}</span><span class="rating"><b>★</b>${escapeText(food.rating || '5.0')}</span></div></div>
+      <div class="food-image"><img src="${escapeText(foodImage(food))}" alt="${escapeText(food.name)}" />${food.promotionPercentage ? `<span class="food-tag promotion-tag">Promoção · ${food.promotionPercentage}%</span>` : ''}<button class="add-button" data-add="${food.id}" aria-label="Adicionar ${escapeText(food.name)}">+</button></div>
+      <div class="food-info"><h3>${escapeText(food.name)}</h3><p>${escapeText(food.description)}</p><div class="food-bottom"><span class="price">${food.promotionPercentage ? `<s>${money(food.originalPrice)}</s> ` : ''}${money(food.price)}</span></div></div>
     </article>`).join('') : '<div class="empty">Nenhum sabor encontrado. Tente outra busca.</div>';
 }
 function renderCategories() {
-  const categories = [...new Set(foods.map(food => food.category))];
+  const categories = getCategoryOrder([...new Set(foods.map(food => food.category).filter(Boolean))]);
   const icons = { Hambúrgueres: '🍔', Pizzas: '🍕', Saudável: '🥗', Doces: '🍰', Bebidas: '🥤', Acompanhamentos: '🍟' };
   const row = document.querySelector('#category-row');
-  row.innerHTML = `<button class="category active" data-category="Todos"><span>✦</span>Todos</button>${categories.map(category => `<button class="category" data-category="${escapeText(category)}"><span>${icons[category] || '✦'}</span>${escapeText(category)}</button>`).join('')}`;
+  const activeFromDom = document.querySelector('.category.active')?.dataset.category || '';
+  const activeCategory = categories.includes(activeFromDom) ? activeFromDom : categories[0] || '';
+  row.innerHTML = categories.map(category => `<button class="category ${category === activeCategory ? 'active' : ''}" data-category="${escapeText(category)}"><span>${icons[category] || '✦'}</span>${escapeText(category)}</button>`).join('');
+  if (!row.querySelector('.category.active') && row.querySelector('.category')) row.querySelector('.category').classList.add('active');
 }
 function renderAddonOptions(elementId, options, type) {
-  document.querySelector(`#${elementId}`).innerHTML = options.map(option => `<label class="option-item">${option.image ? `<img src="${escapeText(option.image)}" alt="" />` : ''}<input type="checkbox" name="${type}" value="${escapeText(option.name)}" data-price="${option.price}" /><span>${escapeText(option.name)}</span><small>+ ${money(option.price)}</small></label>`).join('');
+  document.querySelector(`#${elementId}`).innerHTML = options.map(option => `
+    <div class="option-item">
+      ${option.image ? `<img src="${escapeText(option.image)}" alt="" />` : ''}
+      <span class="option-label">${escapeText(option.name)}</span>
+      <div class="option-quantity">
+        <button type="button" data-addon-step="${type}" data-addon-change="-1" data-addon-name="${encodeURIComponent(option.name)}" data-addon-price="${option.price}" aria-label="Diminuir ${escapeText(option.name)}">−</button>
+        <input type="number" min="0" max="99" step="1" value="0" inputmode="numeric" data-addon-name="${encodeURIComponent(option.name)}" data-addon-price="${option.price}" data-addon-type="${type}" aria-label="Quantidade de ${escapeText(option.name)}" />
+        <button type="button" data-addon-step="${type}" data-addon-change="1" data-addon-name="${encodeURIComponent(option.name)}" data-addon-price="${option.price}" aria-label="Aumentar ${escapeText(option.name)}">+</button>
+      </div>
+      <small>+ ${money(option.price)}</small>
+    </div>`).join('');
 }
 function getDetailTotal() {
-  const extras = [...document.querySelectorAll('.product-detail input:checked')].reduce((sum, input) => sum + Number(input.dataset.price), 0);
-  return (detailProduct.price + extras) * detailQuantity;
+  const quantityExtras = [...document.querySelectorAll('.product-detail [data-addon-price]')].reduce((sum, input) => sum + Number(input.dataset.addonPrice || 0) * Number(input.value || 0), 0);
+  const legacyExtras = [...document.querySelectorAll('.product-detail input[type="checkbox"]:checked')].reduce((sum, input) => sum + Number(input.dataset.price || 0), 0);
+  return (detailProduct.price + quantityExtras + legacyExtras) * detailQuantity;
 }
 function updateDetailTotal() {
   document.querySelector('#detail-quantity').textContent = detailQuantity;
@@ -76,9 +105,17 @@ function closeProduct() {
   document.querySelector('#product-overlay').setAttribute('aria-hidden', 'true');
 }
 function addConfiguredProduct() {
-  const addons = [...document.querySelectorAll('.product-detail input:checked')].map(input => input.value);
+  const addonSelections = [...document.querySelectorAll('.product-detail [data-addon-name]')];
+  const addons = [];
+  for (const input of addonSelections) {
+    const quantity = Number(input.value || 0);
+    if (quantity <= 0) continue;
+    const name = decodeURIComponent(input.dataset.addonName || '');
+    for (let index = 0; index < quantity; index += 1) addons.push(name);
+  }
+  const legacyAddons = [...document.querySelectorAll('.product-detail input[type="checkbox"]:checked')].map(input => input.value);
   const unitPrice = getDetailTotal() / detailQuantity;
-  cart.push({ ...detailProduct, id: Date.now(), originalId: detailProduct.id, price: unitPrice, quantity: detailQuantity, addons });
+  cart.push({ ...detailProduct, id: Date.now(), originalId: detailProduct.id, price: unitPrice, quantity: detailQuantity, addons: [...addons, ...legacyAddons] });
   renderCart();
   closeProduct();
   showToast('Pedido adicionado!');
@@ -159,11 +196,19 @@ async function lookupOrderByReference(event) {
 function renderOrders() {
   document.querySelector('#orders-list').innerHTML = '';
 }
+function formatAddonSummary(addons = []) {
+  const counts = new Map();
+  addons.forEach(addon => counts.set(addon, (counts.get(addon) || 0) + 1));
+  return [...counts].map(([name, quantity]) => `${quantity}x ${name}`).join(', ');
+}
 function renderCart() {
   navCount.textContent = cart.reduce((sum, item) => sum + item.quantity, 0);
   const cartItems = document.querySelector('#cart-items');
   if (!cart.length) { cartItems.innerHTML = '<div class="empty">Seu carrinho está esperando por um pedido gostoso.</div>'; } else {
-    cartItems.innerHTML = cart.map(item => `<article class="cart-row"><img src="${foodImage(item)}" alt="${item.name}" /><div class="cart-detail"><h3>${item.name}</h3><p>${money(item.price)} cada${item.addons?.length ? ` · ${item.addons.join(', ')}` : ''}</p></div><div class="qty"><button data-decrease="${item.id}" aria-label="Diminuir quantidade">−</button><span>${item.quantity}</span><button data-increase="${item.id}" aria-label="Aumentar quantidade">+</button></div><strong>${money(item.price * item.quantity)}</strong><button class="remove" data-remove="${item.id}" aria-label="Remover ${item.name}">×</button></article>`).join('');
+    cartItems.innerHTML = cart.map(item => {
+      const addons = formatAddonSummary(item.addons);
+      return `<article class="cart-row"><img src="${foodImage(item)}" alt="${escapeText(item.name)}" /><div class="cart-detail"><h3>${escapeText(item.name)}</h3><p>${money(item.price)} cada${addons ? `<br><strong>Adicionais:</strong> ${escapeText(addons)}` : ''}</p></div><div class="qty"><button data-decrease="${item.id}" aria-label="Diminuir quantidade">−</button><span>${item.quantity}</span><button data-increase="${item.id}" aria-label="Aumentar quantidade">+</button></div><strong>${money(item.price * item.quantity)}</strong><button class="remove" data-remove="${item.id}" aria-label="Remover ${escapeText(item.name)}">×</button></article>`;
+    }).join('');
   }
   const subtotal = cart.reduce((sum, item) => sum + item.price * item.quantity, 0);
   const deliveryLabel = deliveryQuote ? money(deliveryQuote.fee) : 'Consultar';
@@ -387,7 +432,22 @@ document.querySelector('#delivery-cep').addEventListener('input', handleCepInput
 document.querySelector('#calculate-delivery').addEventListener('click', () => requestDeliveryQuote(true));
 ['#customer-name', '#customer-phone', '#delivery-number'].forEach(selector => document.querySelector(selector).addEventListener('input', scheduleDeliveryQuote));
 document.querySelector('#back-to-delivery').addEventListener('click', () => showCheckoutStep('delivery'));
-document.querySelector('#product-overlay').addEventListener('change', event => { if (!event.target.matches('input')) return; if (event.target.name === 'drink') document.querySelectorAll('input[name="drink"]').forEach(input => { if (input !== event.target) input.checked = false; }); if (event.target.name === 'side' && document.querySelectorAll('input[name="side"]:checked').length > 2) event.target.checked = false; if (event.target.name === 'sauce' && document.querySelectorAll('input[name="sauce"]:checked').length > 2) event.target.checked = false; updateDetailTotal(); });
+document.querySelector('#product-overlay').addEventListener('input', event => {
+  if (!event.target.matches('[data-addon-name]')) return;
+  const value = Number(event.target.value || 0);
+  event.target.value = Math.min(99, Math.max(0, Number.isFinite(value) ? value : 0));
+  updateDetailTotal();
+});
+document.querySelector('#product-overlay').addEventListener('click', event => {
+  const button = event.target.closest('[data-addon-change]');
+  if (!button) return;
+  const input = button.closest('.option-item')?.querySelector('input[data-addon-name]');
+  if (!input) return;
+  const delta = Number(button.dataset.addonChange || 0);
+  const nextValue = Math.min(99, Math.max(0, (Number(input.value || 0)) + delta));
+  input.value = nextValue;
+  updateDetailTotal();
+});
 document.addEventListener('keydown', event => { if (event.key !== 'Escape') return; if (document.querySelector('#product-overlay').classList.contains('open')) closeProduct(); });
 const pageHashes = { home: 'inicio', orders: 'pedidos', cart: 'carrinho', admin: 'admin' };
 function activatePage(page) {

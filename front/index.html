@@ -9,6 +9,7 @@
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
   <link href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600;700&family=Space+Grotesk:wght@500;600;700&display=swap" rel="stylesheet" />
   <link rel="stylesheet" href="styles.css" />
+  <link rel="stylesheet" href="search.css" />
   <link rel="stylesheet" href="checkout.css" />
   <link rel="stylesheet" href="admin.css" />
 </head>
@@ -50,10 +51,8 @@
 
       <div class="page-view active" id="home-page">
         <section class="content-section">
-          <div class="section-heading"><div><span class="section-kicker">PARA COMEÇAR</span><h1 class="menu-title">O que vamos comer</h1></div><div class="search"><span>⌕</span><input id="search-input" type="search" placeholder="Buscar no cardápio" aria-label="Buscar no cardápio" /></div></div>
-          <div class="category-row" id="category-row">
-            <button class="category active" data-category="Todos"><span>✦</span>Todos</button><button class="category" data-category="Hambúrgueres"><span>🍔</span>Hambúrgueres</button><button class="category" data-category="Pizzas"><span>🍕</span>Pizzas</button><button class="category" data-category="Saudável"><span>🥗</span>Saudável</button><button class="category" data-category="Doces"><span>🍰</span>Doces</button><button class="category" data-category="Bebidas"><span>🥤</span>Bebidas</button>
-          </div>
+          <div class="section-heading"><div><span class="section-kicker">PARA COMEÇAR</span><h1 class="menu-title">O que vamos comer</h1></div><div class="search"><span aria-hidden="true">⌕</span><input id="search-input" type="search" placeholder="Buscar no cardápio..." aria-label="Buscar no cardápio" /></div></div>
+          <div class="category-row" id="category-row"></div>
           <section class="daily-promotion" id="daily-promotion" hidden></section>
           <div class="food-grid" id="food-grid"></div>
         </section>
@@ -140,15 +139,15 @@
             <p id="detail-description"></p>
             <strong class="detail-price" id="detail-price"></strong>
             <div class="option-group">
-              <div class="option-heading"><strong>Bebidas</strong><span>Opcional · escolha até 1</span></div>
+              <div class="option-heading"><strong>Bebidas</strong></div>
               <div class="option-list" id="drink-options"></div>
             </div>
             <div class="option-group">
-              <div class="option-heading"><strong>Acompanhamentos</strong><span>Escolha até 2</span></div>
+              <div class="option-heading"><strong>Acompanhamentos</strong></div>
               <div class="option-list" id="side-options"></div>
             </div>
             <div class="option-group">
-              <div class="option-heading"><strong>Molhos</strong><span>Escolha até 2</span></div>
+              <div class="option-heading"><strong>Molhos</strong></div>
               <div class="option-list" id="sauce-options"></div>
             </div>
             <div class="detail-footer"><div class="detail-quantity"><button id="detail-decrease" aria-label="Diminuir quantidade">−</button><span id="detail-quantity">1</span><button id="detail-increase" aria-label="Aumentar quantidade">+</button></div><button class="detail-add" id="detail-add">Adicionar <span id="detail-total"></span></button></div>

@@ -1,0 +1,34 @@
+.search {
+  width: min(100%, 325px);
+  min-height: 38px;
+  gap: 10px;
+  padding: 0 14px;
+  border: 1px solid #e5e7eb;
+  border-radius: 999px;
+  background: #eef0f2;
+  box-shadow: inset 0 1px 2px rgba(23, 23, 20, 0.03);
+  color: #56606b;
+}
+
+.search > span {
+  flex: none;
+  font-size: 18px;
+  line-height: 1;
+}
+
+.search input {
+  min-width: 0;
+  font-size: 12px;
+}
+
+.search input::placeholder {
+  color: #858e99;
+  opacity: 1;
+}
+
+@media (max-width: 760px) {
+  .search {
+    align-self: center;
+    width: min(100%, 325px);
+  }
+}

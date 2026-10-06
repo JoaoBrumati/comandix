@@ -26,6 +26,24 @@ const escapeHtml = value => String(value ?? '').replace(/[&<>"']/g, character =>
 const formatCurrency = value => `R$ ${Number(value || 0).toFixed(2).replace('.', ',')}`;
 const formatDate = value => value ? new Date(value).toLocaleDateString('pt-BR') : 'Não programada';
 const formatDateTime = value => value ? new Date(value).toLocaleString('pt-BR', { dateStyle: 'short', timeStyle: 'short' }) : 'Nenhum ponto registrado';
+const groupOrderStorageKey = 'comandix-category-order';
+
+function getStoredGroupOrder(groups = []) {
+  const saved = localStorage.getItem(groupOrderStorageKey);
+  if (!saved) return groups;
+  try {
+    const parsed = JSON.parse(saved);
+    const ordered = Array.isArray(parsed) ? parsed.filter(item => groups.includes(item)) : [];
+    const remaining = groups.filter(group => !ordered.includes(group));
+    return [...ordered, ...remaining];
+  } catch {
+    return groups;
+  }
+}
+
+function saveGroupOrder(groups = []) {
+  localStorage.setItem(groupOrderStorageKey, JSON.stringify(groups));
+}
 
 function getCsrfTokenFromCookie() {
   const match = document.cookie.split(';').map(cookie => cookie.trim()).find(cookie => cookie.startsWith('comandix_csrf='));
@@ -199,19 +217,22 @@ function promotionMarkup(promotion) {
 
 async function loadAdminMenu() {
   const menu = await adminRequest('/api/admin/menu');
+  const orderedGroups = getStoredGroupOrder(menu.groups);
   const categorySelect = document.querySelector('#menu-product-category');
   const currentCategory = categorySelect.value;
-  categorySelect.innerHTML = '<option value="">Selecione um grupo</option>' + menu.groups.map(group => `<option value="${escapeHtml(group)}">${escapeHtml(group)}</option>`).join('');
-  if (menu.groups.includes(currentCategory)) categorySelect.value = currentCategory;
+  categorySelect.innerHTML = '<option value="">Selecione um grupo</option>' + orderedGroups.map(group => `<option value="${escapeHtml(group)}">${escapeHtml(group)}</option>`).join('');
+  if (orderedGroups.includes(currentCategory)) categorySelect.value = currentCategory;
   const scheduledProductIds = new Set(menu.promotions.map(promotion => promotion.productId));
   const promotionOptions = '<option value="">Selecione um produto</option>' + menu.products.filter(product => product.active || scheduledProductIds.has(product.id)).map(product => `<option value="${product.id}" data-price="${product.price}">${escapeHtml(product.name)}${product.active ? '' : ' (Oculto)'}</option>`).join('');
   document.querySelector('#promotion-product').innerHTML = promotionOptions;
   document.querySelector('#promotion-list').innerHTML = menu.promotions.length ? menu.promotions.map(promotionMarkup).join('') : '<div class="admin-empty">Nenhuma promoção cadastrada.</div>';
   const productsByCategory = Object.groupBy ? Object.groupBy(menu.products, product => product.category) : menu.products.reduce((groups, product) => ({ ...groups, [product.category]: [...(groups[product.category] || []), product] }), {});
-  document.querySelector('#menu-product-list').innerHTML = menu.products.length ? Object.entries(productsByCategory).map(([category, products]) => `<section class="menu-product-group"><h3>${escapeHtml(category)}</h3>${products.map(productMarkup).join('')}</section>`).join('') : '<div class="admin-empty">Nenhum produto cadastrado.</div>';
+  const orderedProductGroups = orderedGroups.map(group => [group, productsByCategory[group] || []]).filter(([group, products]) => products.length || group === 'Bebidas');
+  document.querySelector('#menu-product-list').innerHTML = menu.products.length ? orderedProductGroups.map(([category, products]) => `<section class="menu-product-group"><h3>${escapeHtml(category)}</h3>${products.map(productMarkup).join('')}</section>`).join('') : '<div class="admin-empty">Nenhum produto cadastrado.</div>';
   const productCounts = menu.products.reduce((counts, product) => ({ ...counts, [product.category]: (counts[product.category] || 0) + 1 }), {});
   const protectedGroups = new Set(['Bebidas', 'Complementos', 'Acompanhamentos', 'Molhos']);
-  document.querySelector('#group-list').innerHTML = menu.groups.map(group => `<div class="group-row"><span>${escapeHtml(group)}</span><small>${productCounts[group] || 0} produtos</small><button type="button" data-delete-group="${escapeHtml(group)}" ${protectedGroups.has(group) ? 'disabled title="Grupo reservado para complementos"' : ''} aria-label="Excluir grupo ${escapeHtml(group)}">×</button></div>`).join('');
+  document.querySelector('#group-list').innerHTML = orderedGroups.map(group => `<div class="group-row" draggable="true" data-group-name="${escapeHtml(group)}"><span>${escapeHtml(group)}</span><small>${productCounts[group] || 0} produtos</small><button type="button" data-delete-group="${escapeHtml(group)}" ${protectedGroups.has(group) ? 'disabled title="Grupo reservado para complementos"' : ''} aria-label="Excluir grupo ${escapeHtml(group)}">×</button></div>`).join('');
+  saveGroupOrder(orderedGroups);
 }
 
 async function saveProductGroup(event) {
@@ -516,6 +537,42 @@ document.querySelector('#new-product-button')?.addEventListener('click', () => s
 document.querySelector('#manage-groups-button')?.addEventListener('click', () => { const manager = document.querySelector('#group-manager'); manager.hidden = !manager.hidden; });
 document.querySelector('#group-form')?.addEventListener('submit', saveProductGroup);
 document.querySelector('#group-list')?.addEventListener('click', handleGroupAction);
+document.querySelector('#group-list')?.addEventListener('dragstart', event => {
+  const groupRow = event.target.closest('[data-group-name]');
+  if (!groupRow) return;
+  event.dataTransfer.setData('text/plain', groupRow.dataset.groupName);
+  event.dataTransfer.effectAllowed = 'move';
+});
+document.querySelector('#group-list')?.addEventListener('dragover', event => {
+  const groupRow = event.target.closest('[data-group-name]');
+  if (!groupRow) return;
+  event.preventDefault();
+  groupRow.classList.add('drag-over');
+});
+document.querySelector('#group-list')?.addEventListener('dragleave', event => {
+  const groupRow = event.target.closest('[data-group-name]');
+  if (!groupRow) return;
+  groupRow.classList.remove('drag-over');
+});
+document.querySelector('#group-list')?.addEventListener('drop', event => {
+  const groupRow = event.target.closest('[data-group-name]');
+  if (!groupRow) return;
+  event.preventDefault();
+  const dragged = event.dataTransfer.getData('text/plain');
+  const groups = [...document.querySelectorAll('#group-list [data-group-name]')].map(item => item.dataset.groupName);
+  const fromIndex = groups.indexOf(dragged);
+  const toIndex = groups.indexOf(groupRow.dataset.groupName);
+  if (fromIndex === -1 || toIndex === -1 || fromIndex === toIndex) return;
+  groups.splice(fromIndex, 1);
+  groups.splice(toIndex, 0, dragged);
+  saveGroupOrder(groups);
+  loadAdminMenu().catch(error => showAdminToast(error.message));
+  groupRow.classList.remove('drag-over');
+});
+document.querySelector('#group-list')?.addEventListener('dragend', event => {
+  const groupRow = event.target.closest('[data-group-name]');
+  if (groupRow) groupRow.classList.remove('drag-over');
+});
 document.querySelector('#cancel-product')?.addEventListener('click', () => { const menuForm = document.querySelector('#menu-form'); if (menuForm) { menuForm.hidden = true; menuForm.reset(); } });
 document.querySelector('#menu-form')?.addEventListener('submit', saveMenuProduct);
 document.querySelector('#menu-product-list')?.addEventListener('click', handleMenuAction);

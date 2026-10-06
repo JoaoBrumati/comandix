@@ -10,6 +10,7 @@ const rateLimit = require('express-rate-limit');
 const { lookupCep, quoteDelivery, publicAddress } = require('./src/delivery');
 const { orderSchema } = require('./src/validators');
 const adminStore = require('./src/admin');
+const { detectImageFormat, isAllowedImageMimeType } = require('./src/image-validation');
 const { hashPassword, verifyPassword, buildAdminCookie, buildCsrfCookie, clearAdminCookie, clearCsrfCookie, cookieValue, generateCsrfToken, getClientIp, recordFailedLogin, isBlockedIp, clearFailedLogin, logAdminAuditEvent, findRecentAuditLogs, isAllowedAdminIp, verifyTotpCode, buildSecurityAlertPayload, validateProductionConfig } = require('./src/security');
 const { createCheckoutPreference, fetchMercadoPagoPayment, verifyWebhookSignature } = require('./src/payments');
 
@@ -33,12 +34,20 @@ let databaseFailure = null;
 const uploadDocument = multer({
   storage: multer.memoryStorage(),
   limits: { fileSize: 5 * 1024 * 1024, files: 1 },
-  fileFilter: (_request, file, callback) => callback(null, ['application/pdf', 'image/jpeg', 'image/png'].includes(file.mimetype))
+  fileFilter: (_request, file, callback) => {
+    const allowedMimeType = ['application/pdf', 'image/jpeg', 'image/png', 'image/jpg', 'image/pjpeg', 'image/x-jpeg', 'image/x-png'];
+    const hasAcceptedExtension = /\.(pdf|jpe?g|png)$/i.test(file.originalname || '');
+    callback(null, allowedMimeType.includes(file.mimetype) || hasAcceptedExtension);
+  }
 });
 const uploadMenuImage = multer({
   storage: multer.memoryStorage(),
   limits: { fileSize: 5 * 1024 * 1024, files: 1 },
-  fileFilter: (_request, file, callback) => callback(null, ['image/jpeg', 'image/png', 'image/webp'].includes(file.mimetype))
+  fileFilter: (_request, file, callback) => {
+    const allowedMimeType = ['image/jpeg', 'image/png', 'image/webp', 'image/jpg', 'image/pjpeg', 'image/x-jpeg', 'image/x-png', 'image/x-webp'];
+    const hasAcceptedExtension = /\.(jpe?g|png|webp)$/i.test(file.originalname || '');
+    callback(null, allowedMimeType.includes(file.mimetype) || hasAcceptedExtension);
+  }
 });
 
 app.disable('x-powered-by');
@@ -261,9 +270,11 @@ adminApi.post('/employees/:id/timeclock', asyncRoute(async (request, response) =
 adminApi.post('/employees/:id/documents', uploadDocument.single('document'), asyncRoute(async (request, response) => {
   const file = request.file;
   if (!file) return response.status(400).json({ error: 'Envie um PDF, JPG ou PNG de até 5 MB.' });
-  const isPdf = file.mimetype === 'application/pdf' && file.buffer.subarray(0, 4).toString() === '%PDF';
-  const isJpeg = file.mimetype === 'image/jpeg' && file.buffer[0] === 0xff && file.buffer[1] === 0xd8 && file.buffer[2] === 0xff;
-  const isPng = file.mimetype === 'image/png' && file.buffer.subarray(0, 8).equals(Buffer.from([137, 80, 78, 71, 13, 10, 26, 10]));
+  const mimeType = file.mimetype || '';
+  const detectedFormat = detectImageFormat(file.buffer, mimeType);
+  const isPdf = mimeType === 'application/pdf' && file.buffer.subarray(0, 4).toString() === '%PDF';
+  const isJpeg = detectedFormat === 'image/jpeg';
+  const isPng = detectedFormat === 'image/png';
   if (!isPdf && !isJpeg && !isPng) return response.status(400).json({ error: 'O conteúdo do arquivo não corresponde a PDF, JPG ou PNG.' });
   const result = await adminStore.addDocument(request.params.id, file);
   if (!result) return response.status(404).json({ error: 'Colaborador não encontrado.' });
@@ -312,13 +323,9 @@ adminApi.delete('/menu/promotions/:id', asyncRoute(async (request, response) => 
 adminApi.post('/menu/images', uploadMenuImage.single('image'), (request, response) => {
   const file = request.file;
   if (!file) return response.status(400).json({ error: 'Envie uma imagem JPG, PNG ou WEBP de até 5 MB.' });
-  const signatures = {
-    'image/jpeg': file.buffer[0] === 0xff && file.buffer[1] === 0xd8 && file.buffer[2] === 0xff,
-    'image/png': file.buffer.subarray(0, 8).equals(Buffer.from([137, 80, 78, 71, 13, 10, 26, 10])),
-    'image/webp': file.buffer.subarray(0, 4).toString() === 'RIFF' && file.buffer.subarray(8, 12).toString() === 'WEBP'
-  };
-  if (!signatures[file.mimetype]) return response.status(400).json({ error: 'O conteúdo não corresponde a uma imagem válida.' });
-  const extension = ({ 'image/jpeg': 'jpg', 'image/png': 'png', 'image/webp': 'webp' })[file.mimetype];
+  const detectedFormat = detectImageFormat(file.buffer, file.mimetype);
+  if (!detectedFormat || !isAllowedImageMimeType(detectedFormat)) return response.status(400).json({ error: 'O conteúdo não corresponde a uma imagem válida.' });
+  const extension = ({ 'image/jpeg': 'jpg', 'image/png': 'png', 'image/webp': 'webp' })[detectedFormat];
   const fileName = `${crypto.randomUUID()}.${extension}`;
   require('fs').mkdirSync(menuImageDir, { recursive: true });
   require('fs').writeFileSync(path.join(menuImageDir, fileName), file.buffer, { flag: 'wx' });
