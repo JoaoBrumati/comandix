@@ -34,19 +34,19 @@ function verifyPassword(candidate, storedHash) {
 }
 
 function buildAdminCookie(sessionToken, isProduction = process.env.NODE_ENV === 'production') {
-  return `anotaai_admin=${encodeURIComponent(sessionToken)}; HttpOnly; SameSite=Strict; Path=/api/admin; Max-Age=28800${isProduction ? '; Secure' : ''}`;
+  return `comandix_admin=${encodeURIComponent(sessionToken)}; HttpOnly; SameSite=Strict; Path=/api/admin; Max-Age=28800${isProduction ? '; Secure' : ''}`;
 }
 
 function buildCsrfCookie(csrfToken, isProduction = process.env.NODE_ENV === 'production') {
-  return `anotaai_csrf=${encodeURIComponent(csrfToken)}; SameSite=Strict; Path=/; Max-Age=28800${isProduction ? '; Secure' : ''}`;
+  return `comandix_csrf=${encodeURIComponent(csrfToken)}; SameSite=Strict; Path=/; Max-Age=28800${isProduction ? '; Secure' : ''}`;
 }
 
 function clearAdminCookie() {
-  return 'anotaai_admin=; HttpOnly; SameSite=Strict; Path=/api/admin; Max-Age=0; Expires=Thu, 01 Jan 1970 00:00:00 GMT';
+  return 'comandix_admin=; HttpOnly; SameSite=Strict; Path=/api/admin; Max-Age=0; Expires=Thu, 01 Jan 1970 00:00:00 GMT';
 }
 
 function clearCsrfCookie() {
-  return 'anotaai_csrf=; SameSite=Strict; Path=/; Max-Age=0; Expires=Thu, 01 Jan 1970 00:00:00 GMT';
+  return 'comandix_csrf=; SameSite=Strict; Path=/; Max-Age=0; Expires=Thu, 01 Jan 1970 00:00:00 GMT';
 }
 
 function cookieValue(request, name) {

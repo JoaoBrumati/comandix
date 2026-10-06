@@ -23,7 +23,7 @@ test('buildAdminCookie includes secure cookie attributes', () => {
 test('buildCsrfCookie exposes a CSRF token for the admin UI', () => {
   const cookie = buildCsrfCookie('csrf-token-123');
 
-  assert.match(cookie, /anotaai_csrf=/i);
+  assert.match(cookie, /comandix_csrf=/i);
   assert.match(cookie, /SameSite=Strict/i);
   assert.match(cookie, /Path=\//i);
 });

@@ -134,7 +134,7 @@ app.get('/api/catalog', asyncRoute(async (_request, response) => response.json({
 app.get('/api/promotion', asyncRoute(async (_request, response) => response.json(await adminStore.listActivePromotions())));
 
 function requireAdmin(request, response, next) {
-  const sessionToken = cookieValue(request, 'anotaai_admin');
+  const sessionToken = cookieValue(request, 'comandix_admin');
   const session = adminSessions.get(sessionToken);
   if (!session || session.expiresAt < Date.now()) {
     adminSessions.delete(sessionToken);
@@ -155,11 +155,11 @@ function requireSameOrigin(request, response, next) {
 
 function requireCsrf(request, response, next) {
   if (!['POST', 'PUT', 'PATCH', 'DELETE'].includes(request.method)) return next();
-  const sessionToken = cookieValue(request, 'anotaai_admin');
+  const sessionToken = cookieValue(request, 'comandix_admin');
   const session = adminSessions.get(sessionToken);
   const expectedToken = session?.csrfToken || '';
   const tokenFromHeader = request.get('x-csrf-token') || request.get('x-xsrf-token');
-  const tokenFromCookie = cookieValue(request, 'anotaai_csrf');
+  const tokenFromCookie = cookieValue(request, 'comandix_csrf');
   if (!expectedToken || !tokenFromHeader || !tokenFromCookie || tokenFromHeader.length !== tokenFromCookie.length || tokenFromHeader.length !== expectedToken.length) {
     return response.status(403).json({ error: 'Token CSRF inválido ou ausente.' });
   }
@@ -210,13 +210,13 @@ app.post('/api/admin/login', requireSameOrigin, adminLoginLimiter, asyncRoute(as
 }));
 
 app.get('/api/admin/session', requireAdmin, (request, response) => {
-  const sessionToken = cookieValue(request, 'anotaai_admin');
+  const sessionToken = cookieValue(request, 'comandix_admin');
   const session = adminSessions.get(sessionToken);
   return response.json({ authenticated: true, csrfToken: session?.csrfToken || '' });
 });
 app.delete('/api/admin/session', requireSameOrigin, (request, response) => {
   const clientIp = getClientIp(request);
-  adminSessions.delete(cookieValue(request, 'anotaai_admin'));
+  adminSessions.delete(cookieValue(request, 'comandix_admin'));
   logAdminAuditEvent('admin_logout', request, { ip: clientIp });
   response.setHeader('Set-Cookie', [clearAdminCookie(), clearCsrfCookie()]);
   return response.status(204).end();

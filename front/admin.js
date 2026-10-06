@@ -6,7 +6,7 @@ let selectedPeriod = 'daily';
 let requestedAdminSection = 'dashboard';
 let kanbanRefreshTimer = null;
 let kanbanLoading = false;
-const kanbanPeriodStorageKey = 'anotaai-kanban-period';
+const kanbanPeriodStorageKey = 'comandix-kanban-period';
 const allowedOrderPeriods = ['daily', 'weekly', 'monthly', 'yearly'];
 let kanbanPeriod = 'daily';
 try {
@@ -28,8 +28,8 @@ const formatDate = value => value ? new Date(value).toLocaleDateString('pt-BR') 
 const formatDateTime = value => value ? new Date(value).toLocaleString('pt-BR', { dateStyle: 'short', timeStyle: 'short' }) : 'Nenhum ponto registrado';
 
 function getCsrfTokenFromCookie() {
-  const match = document.cookie.split(';').map(cookie => cookie.trim()).find(cookie => cookie.startsWith('anotaai_csrf='));
-  return match ? decodeURIComponent(match.slice('anotaai_csrf='.length)) : '';
+  const match = document.cookie.split(';').map(cookie => cookie.trim()).find(cookie => cookie.startsWith('comandix_csrf='));
+  return match ? decodeURIComponent(match.slice('comandix_csrf='.length)) : '';
 }
 
 async function adminRequest(url, options = {}) {
@@ -501,7 +501,7 @@ document.querySelector('#admin-logout').addEventListener('click', async () => {
   try { await adminRequest('/api/admin/session', { method: 'DELETE' }); } finally { adminDashboardView.hidden = true; adminLoginView.hidden = false; document.querySelector('#admin-subnav').hidden = true; }
 });
 
-window.addEventListener('anotaai:order-created', () => {
+window.addEventListener('comandix:order-created', () => {
   refreshAdminOrderBoards().catch(error => showAdminToast(error.message));
 });
 

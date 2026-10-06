@@ -55,10 +55,12 @@ No Dashboard, o ADM filtra pedidos, faturamento ou ambos por período. Colaborad
 
 CPF, salário, endereço, dados do cliente e documentos são cifrados com AES-256-GCM pela aplicação antes de serem salvos no PostgreSQL. Configure uma chave aleatória de 32 bytes em Base64 como `DATA_ENCRYPTION_KEY`; mantenha-a em segredo e faça backup seguro.
 
-## PostgreSQL e migração
+## Supabase e migrações
 
-Copie `.env.example` para `.env` e configure `DATABASE_URL` com a conexão PostgreSQL. Gere uma chave de dados com `node -e "console.log(require('crypto').randomBytes(32).toString('base64'))"` e configure o resultado em `DATA_ENCRYPTION_KEY`.
+Crie um projeto Supabase chamado `Comandix` e copie `.env.example` para `.env`. No painel do Supabase, abra **Connect** e use as URLs do pooler: configure `DATABASE_URL` com o pooler de transação (porta 6543) e `DIRECT_URL` com o pooler de sessão (porta 5432). Substitua os placeholders pelo host, referência do projeto e senha fornecidos pelo Supabase; codifique caracteres especiais da senha como URL encoding.
 
-`npm run db:generate` gera o Prisma Client. `npm run db:deploy` aplica as migrations versionadas; em desenvolvimento, `npm run db:migrate` cria/aplica migrations. Para importar registros do antigo `back/data/admin-store.enc`, configure a senha que cifrou esse arquivo em `ADMIN_PASSWORD` e execute `npm run db:import-legacy` depois de aplicar a migration. A importação usa Prisma, é transacional e mantém o arquivo legado sem alterações; confirme os registros no banco antes de arquivar a cópia antiga.
+Gere uma chave de dados com `node -e "console.log(require('crypto').randomBytes(32).toString('base64'))"` e configure o resultado em `DATA_ENCRYPTION_KEY`. Troque também `ADMIN_PASSWORD` por uma senha forte. As URLs do Supabase devem apontar para o banco `postgres`; `Comandix` é o nome do projeto Supabase.
+
+Execute `npm run db:generate` e `npm run db:deploy` para gerar o Prisma Client e aplicar as migrations; `npm run db:migrate` cria/aplica migrations em desenvolvimento. Para importar registros do antigo `back/data/admin-store.enc`, configure a senha que cifrou esse arquivo em `ADMIN_PASSWORD` e execute `npm run db:import-legacy` após aplicar as migrations. A importação é transacional e mantém o arquivo legado sem alterações; confirme os registros no banco antes de arquivar a cópia antiga.
 
 Configure `STORE_WHATSAPP` com o telefone da loja em formato internacional apenas com números, por exemplo `5511999999999`, para habilitar o atalho direto ao WhatsApp.

@@ -237,10 +237,7 @@ async function lookupDeliveryCep() {
   }
 }
 function addressIsReady() {
-  const phone = document.querySelector('#customer-phone').value.replace(/\D/g, '');
-  return document.querySelector('#customer-name').value.trim().split(/\s+/).length >= 2
-    && phone.length >= 10 && phone.length <= 11
-    && /^\d{8}$/.test(document.querySelector('#delivery-cep').value.replace(/\D/g, ''))
+  return /^\d{8}$/.test(document.querySelector('#delivery-cep').value.replace(/\D/g, ''))
     && document.querySelector('#delivery-street').value.trim().length >= 2
     && document.querySelector('#delivery-number').value.trim().length > 0
     && document.querySelector('#delivery-neighborhood').value.trim().length >= 2
@@ -328,7 +325,7 @@ async function confirmPayment() {
     renderCart();
     closePayment();
     const orderCode = result.orderCode || result.orderId?.slice(0, 8).toUpperCase();
-    window.dispatchEvent(new CustomEvent('anotaai:order-created', { detail: { orderId: result.orderId, orderCode } }));
+    window.dispatchEvent(new CustomEvent('comandix:order-created', { detail: { orderId: result.orderId, orderCode } }));
     document.querySelector('#lookup-order-id').value = orderCode;
     document.querySelector('#lookup-phone').value = '';
     document.querySelector('[data-page="orders"]').click();
