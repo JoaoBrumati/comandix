@@ -315,7 +315,7 @@ async function getAddons() {
 }
 
 async function recordOrder(order) {
-  return prisma.order.create({
+  const savedOrder = await prisma.order.create({
     data: {
       id: order.orderId,
       status: 'new',
@@ -329,18 +329,19 @@ async function recordOrder(order) {
       items: { create: order.items.map(item => ({ productId: item.productId, name: item.name, quantity: item.quantity, addons: item.addons, unitPrice: item.unitPrice, total: item.total })) }
     }
   });
+  return normalizeOrder(savedOrder);
 }
 
 async function updateOrderPayment(orderId, payment) {
   if (!Number.isFinite(payment.amount) || payment.amount < 0) return false;
   try {
-    const order = await prisma.order.findUnique({ where: { id: orderId }, select: { total: true } });
+    const order = await prisma.order.findUnique({ where: { id: orderId }, include: { items: true } });
     if (!order || Math.abs(moneyNumber(order.total) - payment.amount) > 0.01) return false;
     await prisma.order.update({
       where: { id: orderId },
       data: { paymentStatus: payment.status, paymentData: encryptJson(payment) }
     });
-    return true;
+    return payment.status === 'approved' && order.paymentStatus !== 'approved' ? normalizeOrder(order) : true;
   } catch (error) {
     if (error.code === 'P2025') return false;
     throw error;
@@ -356,8 +357,14 @@ async function listOrders(period = 'daily') {
 async function updateOrderStatus(orderId, status) {
   if (!orderStatuses.has(status)) return { error: 'Etapa do pedido inválida.' };
   try {
-    const order = await prisma.order.update({ where: { id: orderId }, data: { status, statusUpdatedAt: new Date() } });
-    return { data: { orderId, status: order.status, statusUpdatedAt: order.statusUpdatedAt.toISOString() } };
+    const current = await prisma.order.findUnique({ where: { id: orderId }, include: { items: true } });
+    if (!current) return { error: 'Pedido não encontrado.', status: 404 };
+    if (current.status === status) return { data: { orderId, status, statusUpdatedAt: current.statusUpdatedAt.toISOString() } };
+    const order = await prisma.order.update({ where: { id: orderId }, data: { status, statusUpdatedAt: new Date() }, include: { items: true } });
+    return {
+      data: { orderId, status: order.status, statusUpdatedAt: order.statusUpdatedAt.toISOString() },
+      notificationOrder: normalizeOrder(order)
+    };
   } catch (error) { if (error.code === 'P2025') return { error: 'Pedido não encontrado.', status: 404 }; throw error; }
 }
 

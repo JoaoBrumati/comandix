@@ -10,6 +10,7 @@ const orderSchema = z.object({
     neighborhood: z.string().trim().min(2).max(80),
     city: z.string().trim().min(2).max(80),
     state: z.string().regex(/^[A-Z]{2}$/),
+    whatsappOptIn: z.boolean().default(false),
     residenceType: z.enum(['Casa', 'Apartamento']),
     complement: z.string().trim().max(120).optional().default(''),
     reference: z.string().trim().max(160).optional().default('')

@@ -64,3 +64,12 @@ Gere uma chave de dados com `node -e "console.log(require('crypto').randomBytes(
 Execute `npm run db:generate` e `npm run db:deploy` para gerar o Prisma Client e aplicar as migrations; `npm run db:migrate` cria/aplica migrations em desenvolvimento. Para importar registros do antigo `back/data/admin-store.enc`, configure a senha que cifrou esse arquivo em `ADMIN_PASSWORD` e execute `npm run db:import-legacy` após aplicar as migrations. A importação é transacional e mantém o arquivo legado sem alterações; confirme os registros no banco antes de arquivar a cópia antiga.
 
 Configure `STORE_WHATSAPP` com o telefone da loja em formato internacional apenas com números, por exemplo `5511999999999`, para habilitar o atalho direto ao WhatsApp.
+
+Para enviar atualizações automáticas ao cliente, configure `WHATSAPP_ACCESS_TOKEN`, `WHATSAPP_PHONE_NUMBER_ID` e os nomes dos templates em `WHATSAPP_TEMPLATE_*`. Crie e aprove quatro templates na plataforma WhatsApp Business/Meta, em português (`pt_BR`), com os corpos e parâmetros abaixo; mantenha a ordem exata dos parâmetros:
+
+- `pedido_confirmado`: `✅ Pedido confirmado! Nº {{1}} · Feito em {{2}} · Cliente: {{3}} · Telefone: {{4}} · Entrega em: {{5}} · Itens: {{6}} · Subtotal: {{7}} · Entrega: {{8}} · Total: {{9}} · Pagamento: {{10}} · Previsão: {{11}}`
+- `pedido_em_producao`: `👨‍🍳 Seu pedido #{{1}} está sendo preparado com carinho. Em breve estará pronto. Previsão: {{2}}`
+- `pedido_em_rota`: `🛵 Seu pedido #{{1}} está a caminho. Previsão: {{2}}. Prepare-se para receber!`
+- `pedido_entregue`: `🎉 Seu pedido #{{1}} foi entregue com sucesso! Obrigado pela preferência. Esperamos você novamente em breve!`
+
+O cliente só recebe mensagens se marcar a opção de consentimento no checkout. A confirmação de pedidos em dinheiro é enviada ao criar o pedido; para Mercado Pago, ela só é enviada após aprovação do pagamento. Os estados em produção, em rota e entregue são enviados quando alterados no painel; pedido pronto não gera mensagem. `WHATSAPP_DELIVERY_ESTIMATE` define o prazo mostrado (padrão `60 min`). Sem credenciais ou templates configurados, o pedido e as mudanças de status continuam funcionando, mas nenhuma mensagem é enviada.

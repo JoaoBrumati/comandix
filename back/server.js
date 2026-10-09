@@ -13,6 +13,7 @@ const adminStore = require('./src/admin');
 const { detectImageFormat, isAllowedImageMimeType } = require('./src/image-validation');
 const { hashPassword, verifyPassword, buildAdminCookie, buildCsrfCookie, clearAdminCookie, clearCsrfCookie, cookieValue, generateCsrfToken, getClientIp, recordFailedLogin, isBlockedIp, clearFailedLogin, logAdminAuditEvent, findRecentAuditLogs, isAllowedAdminIp, verifyTotpCode, buildSecurityAlertPayload, validateProductionConfig } = require('./src/security');
 const { createCheckoutPreference, fetchMercadoPagoPayment, verifyWebhookSignature } = require('./src/payments');
+const { sendOrderNotification } = require('./src/whatsapp');
 
 const productionConfig = validateProductionConfig(process.env);
 if (process.env.NODE_ENV === 'production' && !productionConfig.ok) {
@@ -244,7 +245,9 @@ adminApi.get('/dashboard', asyncRoute(async (request, response) => response.json
 adminApi.get('/orders', asyncRoute(async (request, response) => response.json(await adminStore.listOrders(request.query.period))));
 adminApi.patch('/orders/:id/status', asyncRoute(async (request, response) => {
   const result = await adminStore.updateOrderStatus(request.params.id, request.body?.status);
-  return result.error ? response.status(result.status || 400).json({ error: result.error }) : response.json(result.data);
+  if (result.error) return response.status(result.status || 400).json({ error: result.error });
+  if (result.notificationOrder) await sendOrderNotification(result.data.status, result.notificationOrder);
+  return response.json(result.data);
 }));
 adminApi.get('/employees', asyncRoute(async (_request, response) => response.json(await adminStore.listEmployees())));
 adminApi.post('/employees', asyncRoute(async (request, response) => {
@@ -384,7 +387,8 @@ app.post('/api/payments/mercadopago/webhook', asyncRoute(async (request, respons
     providerPaymentId: String(payment.id),
     statusDetail: payment.status_detail || ''
   });
-  return response.status(updated ? 200 : 404).json({ received: updated });
+  if (updated && typeof updated === 'object') sendOrderNotification('new', updated).catch(() => {});
+  return response.status(updated ? 200 : 404).json({ received: Boolean(updated) });
 }));
 
 app.post('/api/orders', asyncRoute(async (request, response) => {
@@ -409,7 +413,8 @@ app.post('/api/orders', asyncRoute(async (request, response) => {
     }
     const { name, phone, street, number, neighborhood, city, state, complement, reference } = parsed.data.customer;
     const customer = { name, phone, address: [street, number, complement, neighborhood, `${city}/${state}`].filter(Boolean).join(', '), reference };
-    await adminStore.recordOrder({ orderId, items, subtotal, deliveryFee, total, payment, customer });
+    const savedOrder = await adminStore.recordOrder({ orderId, items, subtotal, deliveryFee, total, payment, customer: { ...customer, whatsappOptIn: parsed.data.customer.whatsappOptIn } });
+    if (payment.method === 'cash') sendOrderNotification('new', savedOrder).catch(() => {});
 
     const orderCode = orderId.slice(0, 8).toUpperCase();
     return response.status(201).json({ orderId, orderCode, status: 'created', items, subtotal, deliveryFee, distanceKm: delivery.distanceKm, total, payment: { method: payment.method, status: payment.status, checkoutUrl } });

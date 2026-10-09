@@ -26,7 +26,7 @@
   font-size: 11px;
 }
 
-#delivery-step input:not([type="radio"]) {
+#delivery-step input:not([type="radio"]):not([type="checkbox"]) {
   display: block;
   box-sizing: border-box;
   width: 100%;
@@ -45,6 +45,24 @@
 #delivery-step input:not([type="radio"]):focus {
   border-color: var(--coral);
   background: var(--white);
+}
+
+.whatsapp-opt-in {
+  display: flex;
+  align-items: flex-start;
+  gap: 9px;
+  margin: 12px 0;
+  color: #4e4e48;
+  font-size: 11px;
+  line-height: 1.45;
+}
+
+.whatsapp-opt-in input[type="checkbox"] {
+  flex: none;
+  width: 16px;
+  min-height: 16px;
+  margin: 1px 0 0;
+  accent-color: var(--coral);
 }
 
 #delivery-step input[readonly] {
