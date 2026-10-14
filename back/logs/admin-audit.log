@@ -266,3 +266,13 @@
 {"timestamp":"2026-10-09T10:31:20.756Z","event":"admin_api_call","ip":"::1","method":"GET","url":"/api/admin/dashboard?period=daily","path":"/api/admin/dashboard?period=daily"}
 {"timestamp":"2026-10-09T10:31:20.771Z","event":"admin_api_call","ip":"::1","method":"GET","url":"/api/admin/security/logs","path":"/api/admin/security/logs"}
 {"timestamp":"2026-10-09T10:53:15.497Z","event":"admin_login_success","ip":"127.0.0.1","method":"UNKNOWN","url":"/api/admin/login","username":"admin"}
+{"timestamp":"2026-10-14T10:07:00.770Z","event":"admin_login_success","ip":"::1","method":"POST","url":"/api/admin/login","username":"admin","has2fa":false}
+{"timestamp":"2026-10-14T10:07:00.777Z","event":"admin_api_call","ip":"::1","method":"GET","url":"/api/admin/dashboard?period=daily","path":"/api/admin/dashboard?period=daily"}
+{"timestamp":"2026-10-14T10:07:00.809Z","event":"admin_api_call","ip":"::1","method":"GET","url":"/api/admin/security/logs","path":"/api/admin/security/logs"}
+{"timestamp":"2026-10-14T10:07:06.650Z","event":"admin_login_success","ip":"::1","method":"POST","url":"/api/admin/login","username":"admin","has2fa":false}
+{"timestamp":"2026-10-14T10:07:06.656Z","event":"admin_api_call","ip":"::1","method":"GET","url":"/api/admin/orders?period=daily","path":"/api/admin/orders?period=daily"}
+{"timestamp":"2026-10-14T10:07:08.776Z","event":"admin_api_call","ip":"::1","method":"GET","url":"/api/admin/menu","path":"/api/admin/menu"}
+{"timestamp":"2026-10-14T10:07:12.129Z","event":"admin_api_call","ip":"::1","method":"GET","url":"/api/admin/menu","path":"/api/admin/menu"}
+{"timestamp":"2026-10-14T10:07:28.315Z","event":"admin_api_call","ip":"::1","method":"POST","url":"/api/admin/menu/images","path":"/api/admin/menu/images"}
+{"timestamp":"2026-10-14T10:07:28.330Z","event":"admin_api_call","ip":"::1","method":"PATCH","url":"/api/admin/menu/products/2","path":"/api/admin/menu/products/2"}
+{"timestamp":"2026-10-14T10:07:28.488Z","event":"admin_api_call","ip":"::1","method":"GET","url":"/api/admin/menu","path":"/api/admin/menu"}
