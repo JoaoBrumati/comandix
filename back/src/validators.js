@@ -3,7 +3,10 @@ const { z } = require('zod');
 const orderSchema = z.object({
   customer: z.object({
     name: z.string().trim().min(5).max(100).refine(value => value.trim().split(/\s+/).length >= 2, 'Informe o nome completo.'),
-    phone: z.string().regex(/^\d{10,11}$/, 'Informe telefone com DDD.'),
+    phone: z.string()
+      .transform(value => value.replace(/\D/g, ''))
+      .transform(value => (value.length === 12 || value.length === 13) && value.startsWith('55') ? value.slice(2) : value)
+      .refine(value => /^\d{10,11}$/.test(value), 'Informe telefone com DDD.'),
     cep: z.string().regex(/^\d{8}$/),
     street: z.string().trim().min(2).max(120),
     number: z.string().trim().min(1).max(20),

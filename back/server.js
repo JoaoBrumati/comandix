@@ -24,8 +24,8 @@ if (process.env.NODE_ENV === 'production' && !productionConfig.ok) {
 const app = express();
 app.set('trust proxy', 1);
 const port = Number(process.env.PORT || 3000);
-const clientOrigin = process.env.CLIENT_ORIGIN || `http://localhost:${port}`;
-const frontDir = path.join(__dirname, '..', 'front');
+const clientOrigin = process.env.CLIENT_ORIGIN || 'http://localhost:5173';
+const buildDir = path.join(__dirname, '..', 'dist');
 const imageDir = path.join(__dirname, '..', 'img');
 const menuImageDir = path.join(imageDir, 'menu');
 const adminSessions = new Map();
@@ -106,7 +106,7 @@ const adminLoginLimiter = rateLimit({
 });
 app.use(globalRateLimiter);
 app.use(['/api/catalog', '/api/promotion', '/api/admin', '/api/orders', '/api/payments'], (_request, response, next) => {
-  if (!databaseReady) return response.status(503).json({ error: 'PostgreSQL indisponível. Configure DATABASE_URL, aplique as migrations e tente novamente.' });
+  if (!databaseReady) return response.status(503).json({ error: getDatabaseUnavailableMessage() });
   next();
 });
 
@@ -114,19 +114,15 @@ function asyncRoute(handler) {
   return (request, response, next) => Promise.resolve(handler(request, response, next)).catch(next);
 }
 
+function getDatabaseUnavailableMessage() {
+  if (databaseFailure?.message.includes('DATA_ENCRYPTION_KEY')) {
+    return 'Configuração inválida: DATA_ENCRYPTION_KEY precisa conter 32 bytes codificados em Base64.';
+  }
+  return 'PostgreSQL indisponível. Confira DATABASE_URL e aplique as migrations antes de tentar novamente.';
+}
+
 async function calculateOrder(items) {
-  return Promise.all(items.map(async item => {
-    const product = adminStore.getCatalogProduct(item.productId);
-    const resolvedProduct = await product;
-    if (!resolvedProduct) throw new Error(`Produto inválido: ${item.productId}`);
-    const addons = await Promise.all(item.addons.map(async addon => {
-      const price = await adminStore.getAddonPrice(addon);
-      if (price == null) throw new Error(`Adicional inválido: ${addon}`);
-      return { name: addon, price };
-    }));
-    const unitPrice = resolvedProduct.price + addons.reduce((total, addon) => total + addon.price, 0);
-    return { productId: item.productId, name: resolvedProduct.name, quantity: item.quantity, addons: addons.map(addon => addon.name), unitPrice, total: unitPrice * item.quantity };
-  }));
+  return adminStore.calculateOrderItems(items);
 }
 
 app.get('/api/health', (_request, response) => {
@@ -424,8 +420,8 @@ app.post('/api/orders', asyncRoute(async (request, response) => {
 }));
 
 app.use('/img', express.static(imageDir, { maxAge: '7d', fallthrough: false }));
-app.use(express.static(frontDir, { extensions: ['html'], maxAge: process.env.NODE_ENV === 'production' ? '1d' : 0 }));
-app.get('*', (_request, response) => response.sendFile(path.join(frontDir, 'index.html')));
+app.use(express.static(buildDir, { maxAge: process.env.NODE_ENV === 'production' ? '1d' : 0 }));
+app.get('*', (_request, response) => response.sendFile(path.join(buildDir, 'index.html')));
 
 app.use((error, _request, response, _next) => {
   if (error.type === 'entity.parse.failed') return response.status(400).json({ error: 'JSON inválido.' });

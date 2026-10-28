@@ -73,8 +73,9 @@ async function getStoreCoordinates() {
     const longitude = Number(process.env.STORE_LNG);
     if (Number.isFinite(latitude) && Number.isFinite(longitude) && Math.abs(latitude) <= 90 && Math.abs(longitude) <= 180) return { latitude, longitude };
   }
-  if (process.env.STORE_CEP && cepPattern.test(process.env.STORE_CEP)) {
-    const storeCepData = await lookupCep(process.env.STORE_CEP);
+  const storeCep = String(process.env.STORE_CEP || '').replace(/\D/g, '');
+  if (cepPattern.test(storeCep)) {
+    const storeCepData = await lookupCep(storeCep);
     const coordinates = getCoordinates(storeCepData);
     if (coordinates) return coordinates;
   }
@@ -86,14 +87,14 @@ async function getStoreCoordinates() {
 }
 
 async function quoteDelivery(cep) {
-  const cepData = await lookupCep(cep);
+  const [cepData, origin] = await Promise.all([lookupCep(cep), getStoreCoordinates()]);
   const destination = getCoordinates(cepData);
   if (!destination) {
     const error = new Error('Não foi possível localizar este CEP para calcular a taxa.');
     error.status = 422;
     throw error;
   }
-  const distanceKm = distanceInKm(await getStoreCoordinates(), destination);
+  const distanceKm = distanceInKm(origin, destination);
   const fee = distanceKm <= 5 ? 5 : distanceKm <= 10 ? 10 : 20;
   return { fee, distanceKm: Math.round(distanceKm * 10) / 10 };
 }

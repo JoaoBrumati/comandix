@@ -229,6 +229,44 @@ async function getAddonPrice(name) {
   return product ? moneyNumber(product.price) : null;
 }
 
+async function calculateOrderItems(items, timestamp = new Date()) {
+  const productIds = [...new Set(items.map(item => item.productId))];
+  const addonNames = [...new Set(items.flatMap(item => item.addons))];
+  const filters = [];
+  if (productIds.length) filters.push({ id: { in: productIds } });
+  if (addonNames.length) filters.push({ name: { in: addonNames }, active: true, category: { in: ['Bebidas', 'Complementos', 'Acompanhamentos', 'Molhos'] } });
+
+  const products = await prisma.product.findMany({
+    where: { OR: filters },
+    include: { promotions: true },
+    orderBy: { id: 'asc' }
+  });
+  const productsById = new Map(products
+    .filter(product => product.active && !['Complementos', 'Acompanhamentos', 'Molhos'].includes(product.category))
+    .map(product => {
+      const promotion = product.promotions.find(item => promotionIsActive(item, timestamp));
+      return [product.id, { name: product.name, price: promotion ? salePrice(product, promotion) : moneyNumber(product.price) }];
+    }));
+  const addonsByName = new Map();
+  for (const product of products) {
+    if (product.active && ['Bebidas', 'Complementos', 'Acompanhamentos', 'Molhos'].includes(product.category) && !addonsByName.has(product.name)) {
+      addonsByName.set(product.name, moneyNumber(product.price));
+    }
+  }
+
+  return items.map(item => {
+    const product = productsById.get(item.productId);
+    if (!product) throw new Error(`Produto inválido: ${item.productId}`);
+    const addons = item.addons.map(name => {
+      const price = addonsByName.get(name);
+      if (price == null) throw new Error(`Adicional inválido: ${name}`);
+      return { name, price };
+    });
+    const unitPrice = product.price + addons.reduce((total, addon) => total + addon.price, 0);
+    return { productId: item.productId, name: product.name, quantity: item.quantity, addons: addons.map(addon => addon.name), unitPrice, total: unitPrice * item.quantity };
+  });
+}
+
 async function removeUnusedMenuImage(image, exceptProductId) {
   if (!/^\/img\/menu\/[a-z0-9-]+\.(jpg|png|webp)$/i.test(image)) return;
   const references = await prisma.product.count({ where: { image, ...(exceptProductId ? { id: { not: exceptProductId } } : {}) } });
@@ -327,7 +365,8 @@ async function recordOrder(order) {
       paymentData: encryptJson(order.payment),
       customerData: encryptJson(order.customer),
       items: { create: order.items.map(item => ({ productId: item.productId, name: item.name, quantity: item.quantity, addons: item.addons, unitPrice: item.unitPrice, total: item.total })) }
-    }
+    },
+    include: { items: true }
   });
   return normalizeOrder(savedOrder);
 }
@@ -428,4 +467,4 @@ async function getDashboard(period = 'daily') {
   };
 }
 
-module.exports = { addDocument, addEmployee, addTimeEntry, createProductGroup, deleteEmployee, deleteProduct, deleteProductGroup, deletePromotion, getAddonPrice, getAddons, getCatalogProduct, getDashboard, getDocument, getEmployee, getMenuSettings, initializeAdminStore, listActivePromotions, listEmployees, listOrders, listProducts, lookupOrders, recordOrder, saveProduct, savePromotion, scheduleVacation, updateEmployee, updateOrderPayment, updateOrderStatus };
+module.exports = { addDocument, addEmployee, addTimeEntry, calculateOrderItems, createProductGroup, deleteEmployee, deleteProduct, deleteProductGroup, deletePromotion, getAddonPrice, getAddons, getCatalogProduct, getDashboard, getDocument, getEmployee, getMenuSettings, initializeAdminStore, listActivePromotions, listEmployees, listOrders, listProducts, lookupOrders, recordOrder, saveProduct, savePromotion, scheduleVacation, updateEmployee, updateOrderPayment, updateOrderStatus };

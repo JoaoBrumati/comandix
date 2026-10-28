@@ -15,6 +15,8 @@ Aplicação de pedidos com catálogo, adicionais e checkout.
 - `.env`: configuração local, ignorada pelo Git.
 - `.env.example`: modelo das variáveis necessárias.
 
+Na execução local, configure `CLIENT_ORIGIN=http://localhost:5173` para corresponder à origem padrão do Vite. Para permitir o acesso administrativo apenas pela própria máquina, configure `ADMIN_ALLOWED_IPS=127.0.0.1,::1` (loopback IPv4 e IPv6).
+
 Configure `STORE_CEP` no `.env` com o CEP do estabelecimento antes de ativar a cotação. Opcionalmente, use `STORE_LAT` e `STORE_LNG` para informar coordenadas mais precisas.
 
 O cliente informa o CEP de entrega; rua, bairro, cidade e UF são preenchidos pela consulta de CEP. Número, tipo de residência e ponto de referência são coletados no checkout. A taxa é calculada no servidor pela distância aproximada em linha reta entre as coordenadas dos CEPs: até 5 km custa R$ 5, acima de 5 e até 10 km custa R$ 10, e acima de 10 km custa R$ 20. Antes da cotação, o checkout mostra “Consultar”.
@@ -73,3 +75,40 @@ Para enviar atualizações automáticas ao cliente, configure `WHATSAPP_ACCESS_T
 - `pedido_entregue`: `🎉 Seu pedido #{{1}} foi entregue com sucesso! Obrigado pela preferência. Esperamos você novamente em breve!`
 
 O cliente só recebe mensagens se marcar a opção de consentimento no checkout. A confirmação de pedidos em dinheiro é enviada ao criar o pedido; para Mercado Pago, ela só é enviada após aprovação do pagamento. Os estados em produção, em rota e entregue são enviados quando alterados no painel; pedido pronto não gera mensagem. `WHATSAPP_DELIVERY_ESTIMATE` define o prazo mostrado (padrão `60 min`). Sem credenciais ou templates configurados, o pedido e as mudanças de status continuam funcionando, mas nenhuma mensagem é enviada.
+Sistema de pedidos com loja, carrinho, acompanhamento e painel administrativo. A interface usa React, TypeScript e Vite; o servidor Express e a integração com PostgreSQL/Prisma permanecem em `back/` e `prisma/`.
+
+## Requisitos
+
+- Node.js 20 ou superior
+- PostgreSQL configurado para a aplicação
+
+## Desenvolvimento
+
+1. Instale as dependências com `npm install`.
+2. Copie `.env.example` para `.env`, substitua os placeholders da conexão PostgreSQL e defina uma senha administrativa forte.
+   - Para usar o PostgreSQL do Supabase, no painel do projeto abra **Connect** e use a URI do pooler de transações (porta `6543`) em `DATABASE_URL`, com `pgbouncer=true`, `connection_limit=1` e `sslmode=require`. Para `DIRECT_URL`, prefira a URI do pooler de sessão (porta `5432`), necessária para migrations quando a conexão direta do projeto não estiver acessível na rede.
+   - A aplicação usa Prisma para acessar o PostgreSQL. `SUPABASE_URL`, `SUPABASE_PUBLISHABLE_KEY` e `SUPABASE_SECRET_KEY` não substituem essas URIs e não são necessárias para essa integração. Não coloque uma chave `secret` no frontend nem a envie ao repositório.
+3. Gere uma chave de criptografia com `node -e "console.log(require('crypto').randomBytes(32).toString('base64'))"` e atribua o resultado a `DATA_ENCRYPTION_KEY`. Mantenha essa chave salva e estável; trocá-la impede a leitura dos dados já criptografados.
+4. Gere o cliente do banco com `npm run db:generate` e aplique as migrations com `npm run db:migrate`.
+5. Inicie o servidor da API com `npm run server`.
+6. Em outro terminal, inicie o React com `npm run dev`.
+
+O Vite encaminha as chamadas `/api` ao servidor local em `http://localhost:3000`.
+
+## Build e produção
+
+- `npm run build` compila e valida o frontend, gerando os arquivos em `dist/`.
+- `npm start` inicia o servidor Express, que serve a aplicação compilada e os endpoints da API.
+- `npm run db:deploy` aplica as migrations em produção.
+- `npm test` executa os testes do backend.
+- `npm run lint` executa o Oxlint.
+
+## Estrutura
+
+- `src/components/`: componentes React da navegação, páginas e diálogos.
+- `src/legacy/`: comportamento existente da loja e do painel, ainda baseado nos identificadores do DOM.
+- `front/`: folhas de estilo da interface.
+- `back/`: API Express, autenticação, pedidos, pagamentos e integrações.
+- `prisma/`: schema e migrations do banco.
+- `img/`: ícones e imagens dos produtos.
+- `comandix_landing_page/`: página de apresentação independente.
