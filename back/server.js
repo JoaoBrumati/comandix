@@ -433,7 +433,14 @@ app.use((error, _request, response, _next) => {
   return response.status(500).json({ error: 'Erro interno do servidor.' });
 });
 
-app.listen(port, () => console.log(`Comandix rodando em http://localhost:${port}`));
-adminStore.initializeAdminStore()
+const databaseInitialization = adminStore.initializeAdminStore()
   .then(() => { databaseReady = true; console.log('PostgreSQL conectado; Prisma pronto.'); })
   .catch(error => { databaseFailure = error; console.error(`PostgreSQL/criptografia indisponível (${error.code || error.name}). Confira DATABASE_URL, DATA_ENCRYPTION_KEY e aplique as migrations.`); });
+
+app.ready = databaseInitialization;
+
+if (require.main === module) {
+  app.listen(port, () => console.log(`Comandix rodando em http://localhost:${port}`));
+}
+
+module.exports = app;

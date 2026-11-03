@@ -32,6 +32,19 @@ npm start
 
 Abra `http://localhost:3000`.
 
+## Deploy na Vercel
+
+Configure o projeto da Vercel com a raiz do repositório, Node.js 20 ou superior e as variáveis de ambiente de produção. O `npm run build` publica também as imagens de `img/`, e a função em `api/` encaminha as rotas `/api/*` para o Express.
+
+Cadastre na Vercel, sem adicionar segredos ao Git:
+
+- `DATABASE_URL`, `DIRECT_URL` e `DATA_ENCRYPTION_KEY`; aplique as migrations no PostgreSQL antes do primeiro uso.
+- `ADMIN_PASSWORD` (mínimo de 12 caracteres) ou `ADMIN_PASSWORD_HASH`.
+- `PUBLIC_BASE_URL` com a URL HTTPS pública do site.
+- `CLIENT_ORIGIN` com a mesma origem pública do site, por exemplo `https://loja.exemplo.com`.
+
+Use a URL pública de cada ambiente em `PUBLIC_BASE_URL` e `CLIENT_ORIGIN`. O painel e a loja dependem do PostgreSQL configurado e acessível pela função. A Vercel usa instâncias serverless: sessões administrativas mantidas em memória e imagens novas gravadas no disco local não são persistentes entre instâncias/deploys. Para operar essas funções em produção, sessões e uploads precisam usar armazenamento compartilhado/persistente.
+
 ## Pagamento
 
 O checkout oferece dinheiro na entrega ou redireciona cartão/PIX ao Checkout Pro do Mercado Pago. A API cria a preferência com preços recalculados pelo servidor; a confirmação do pagamento só é atualizada após um webhook assinado e uma consulta autenticada ao Mercado Pago. Os dados de cartão permanecem no provedor.
