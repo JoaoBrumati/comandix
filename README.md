@@ -34,7 +34,7 @@ Abra `http://localhost:3000`.
 
 ## Deploy na Vercel
 
-Configure o projeto da Vercel com a raiz do repositório, Node.js 20 ou superior e as variáveis de ambiente de produção. O `npm run build` publica também as imagens de `img/`, e a função em `api/` encaminha as rotas `/api/*` para o Express.
+Configure o projeto da Vercel com a raiz do repositório, Node.js 20 ou superior e as variáveis de ambiente de produção. O `npm run build` gera o Prisma Client e publica também as imagens de `img/`; a função em `api/` encaminha as rotas `/api/*` para o Express.
 
 Cadastre na Vercel, sem adicionar segredos ao Git:
 

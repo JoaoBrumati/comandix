@@ -10,7 +10,7 @@
     "start": "node back/server.js",
     "dev": "vite",
     "server": "node --watch back/server.js",
-    "build": "tsc -b && vite build",
+    "build": "prisma generate && tsc -b && vite build",
     "lint": "oxlint",
     "test": "node --test",
     "preview": "vite preview",
