@@ -35,3 +35,21 @@ test('rejects Brazilian phone numbers without a valid DDD and subscriber length'
   assert.equal(orderSchema.safeParse(order('123456789')).success, false);
   assert.equal(orderSchema.safeParse(order('+55 123456789012')).success, false);
 });
+
+test('accepts up to four distinct combo choices', () => {
+  const parsed = orderSchema.safeParse({
+    ...order('11999999999'),
+    items: [{ productId: 7, quantity: 1, options: [10, 11, 12, 13] }]
+  });
+  assert.equal(parsed.success, true);
+});
+
+test('rejects repeated or excessive combo choices', () => {
+  for (const options of [[10, 10], [10, 11, 12, 13, 14]]) {
+    const parsed = orderSchema.safeParse({
+      ...order('11999999999'),
+      items: [{ productId: 7, quantity: 1, options }]
+    });
+    assert.equal(parsed.success, false);
+  }
+});

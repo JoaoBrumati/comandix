@@ -6,9 +6,8 @@ function Sidebar({ admin = false }: SidebarProps) {
   return (
     <aside className="sidebar" aria-label="Menu de navegação">
       <div className="drawer-heading">
-        <a className="brand" href={admin ? '/' : '#inicio'} data-page={admin ? undefined : 'home'} aria-label="Comandix início">
-          <img className="brand-mark-icon" src="/img/icons/comandix_icone.svg" alt="" aria-hidden="true" />
-          <span>Comandix</span>
+        <a className="brand store-brand" href={admin ? '/' : '#inicio'} data-page={admin ? undefined : 'home'} aria-label="Comandix — Fino Sabor Salgados">
+          <img className="store-brand-logo" src="/img/fino-sabor-logo.png" alt="Fino Sabor Salgados" />
         </a>
         <button className="drawer-close" id="close-menu" type="button" aria-label="Fechar menu">×</button>
       </div>

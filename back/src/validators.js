@@ -18,7 +18,16 @@ const orderSchema = z.object({
     complement: z.string().trim().max(120).optional().default(''),
     reference: z.string().trim().max(160).optional().default('')
   }),
-  items: z.array(z.object({ productId: z.number().int().positive(), quantity: z.number().int().min(1).max(20), addons: z.array(z.string().trim().min(1).max(60)).max(10).default([]) })).min(1).max(30),
+  items: z.array(z.object({
+    productId: z.number().int().positive(),
+    quantity: z.number().int().min(1).max(20),
+    addons: z.array(z.string().trim().min(1).max(60)).max(10).default([]),
+    options: z.array(z.number().int().positive()).max(4).default([])
+  }).superRefine((item, context) => {
+    if (new Set(item.options).size !== item.options.length) {
+      context.addIssue({ code: 'custom', path: ['options'], message: 'As opções escolhidas precisam ser diferentes.' });
+    }
+  })).min(1).max(30),
   payment: z.discriminatedUnion('method', [
     z.object({ method: z.literal('cash'), changeFor: z.number().positive().optional() }),
     z.object({ method: z.literal('mercadopago') })

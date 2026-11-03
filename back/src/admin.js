@@ -18,7 +18,26 @@ const productSchema = z.object({
   description: z.string().trim().min(3).max(500),
   price: z.number().finite().min(0).max(100000),
   image: z.string().trim().max(240),
-  active: z.boolean().default(true)
+  active: z.boolean().default(true),
+  optionGroupName: z.string().trim().min(2).max(50).nullable().optional().default(null),
+  maxOptionSelections: z.number().int().min(0).max(4).optional().default(0),
+  optionProductIds: z.array(z.number().int().positive()).max(100).optional().default([])
+}).superRefine((product, context) => {
+  if (product.optionGroupName && product.maxOptionSelections < 1) {
+    context.addIssue({ code: 'custom', path: ['maxOptionSelections'], message: 'Informe o limite de opções do combo.' });
+  }
+  if (product.optionGroupName && product.optionProductIds.length === 0) {
+    context.addIssue({ code: 'custom', path: ['optionProductIds'], message: 'Selecione pelo menos um produto para o combo.' });
+  }
+  if (new Set(product.optionProductIds).size !== product.optionProductIds.length) {
+    context.addIssue({ code: 'custom', path: ['optionProductIds'], message: 'Não repita produtos nas opções do combo.' });
+  }
+  if (!product.optionGroupName && product.maxOptionSelections !== 0) {
+    context.addIssue({ code: 'custom', path: ['optionGroupName'], message: 'Selecione um grupo de opções para o combo.' });
+  }
+  if (!product.optionGroupName && product.optionProductIds.length > 0) {
+    context.addIssue({ code: 'custom', path: ['optionProductIds'], message: 'Selecione um grupo de opções para usar estes produtos.' });
+  }
 });
 const orderStatuses = new Set(['new', 'preparing', 'ready', 'out_for_delivery', 'completed', 'cancelled']);
 const orderPeriods = new Set(['daily', 'weekly', 'monthly', 'yearly']);
@@ -74,7 +93,7 @@ function normalizeOrder(order, includeCustomer = true) {
     payment: { method: order.paymentMethod, status: order.paymentStatus, ...(includeCustomer && order.paymentData ? decryptJson(order.paymentData) : {}) },
     createdAt: order.createdAt.toISOString(),
     statusUpdatedAt: order.statusUpdatedAt.toISOString(),
-    items: order.items.map(item => ({ productId: item.productId, name: item.name, quantity: item.quantity, addons: item.addons, unitPrice: moneyNumber(item.unitPrice), total: moneyNumber(item.total) }))
+    items: order.items.map(item => ({ productId: item.productId, name: item.name, quantity: item.quantity, addons: item.addons, options: item.options || [], unitPrice: moneyNumber(item.unitPrice), total: moneyNumber(item.total) }))
   };
   if (includeCustomer) result.customer = decryptJson(order.customerData);
   return result;
@@ -160,14 +179,28 @@ async function scheduleVacation(id, payload) {
 }
 
 async function listProducts() {
-  const [products, promotions] = await Promise.all([prisma.product.findMany({ where: { active: true, category: { notIn: ['Complementos', 'Acompanhamentos', 'Molhos'] } }, orderBy: { id: 'asc' } }), prisma.promotion.findMany()]);
-  return products.map(product => normalizeProduct(product, promotions));
+  const [products, promotions] = await Promise.all([
+    prisma.product.findMany({
+      where: { active: true, productGroup: { visibleInStorefront: true } },
+      include: { optionGroup: { include: { products: { where: { active: true }, select: { id: true, name: true, image: true }, orderBy: { name: 'asc' } } } } },
+      orderBy: { id: 'asc' }
+    }),
+    prisma.promotion.findMany()
+  ]);
+  return products.map(product => ({
+    ...normalizeProduct(product, promotions),
+    optionGroup: product.optionGroup ? {
+      name: product.optionGroup.name,
+      maxSelections: product.maxOptionSelections,
+      products: product.optionGroup.products.filter(option => product.optionProductIds.length === 0 || product.optionProductIds.includes(option.id))
+    } : null
+  }));
 }
 
 async function getMenuSettings() {
   const [products, groups, promotions] = await Promise.all([
     prisma.product.findMany({ orderBy: { id: 'asc' } }),
-    prisma.productGroup.findMany({ orderBy: { name: 'asc' }, select: { name: true } }),
+    prisma.productGroup.findMany({ orderBy: { name: 'asc' }, select: { name: true, visibleInStorefront: true } }),
     prisma.promotion.findMany({ include: { product: true }, orderBy: [{ startsAt: 'asc' }, { createdAt: 'asc' }] })
   ]);
   const now = new Date();
@@ -182,7 +215,7 @@ async function getMenuSettings() {
     basePrice: moneyNumber(promotion.product.price),
     salePrice: salePrice(promotion.product, promotion)
   }));
-  return { products: products.map(product => normalizeProduct(product, promotions, now)), groups: groups.map(group => group.name), promotions: allPromotions };
+  return { products: products.map(product => normalizeProduct(product, promotions, now)), groups, promotions: allPromotions };
 }
 
 async function createProductGroup(name) {
@@ -197,10 +230,34 @@ async function createProductGroup(name) {
   }
 }
 
+async function updateProductGroup(name, payload) {
+  const parsed = z.object({
+    name: z.string().trim().min(2).max(50).optional(),
+    visibleInStorefront: z.boolean().optional()
+  }).refine(data => data.name !== undefined || data.visibleInStorefront !== undefined).safeParse(payload);
+  if (!parsed.success) return { error: 'Informe um novo nome ou a visibilidade do grupo.' };
+  if (parsed.data.name && ['Bebidas', 'Complementos', 'Acompanhamentos', 'Molhos'].includes(name)) {
+    return { error: 'Este grupo é reservado e não pode ser renomeado.' };
+  }
+  try {
+    const group = await prisma.productGroup.update({
+      where: { name },
+      data: { ...(parsed.data.name ? { name: parsed.data.name } : {}), ...(parsed.data.visibleInStorefront !== undefined ? { visibleInStorefront: parsed.data.visibleInStorefront } : {}) }
+    });
+    return { data: { name: group.name, visibleInStorefront: group.visibleInStorefront } };
+  } catch (error) {
+    if (error.code === 'P2025') return { error: 'Grupo não encontrado.', status: 404 };
+    if (error.code === 'P2002') return { error: 'Já existe um grupo com esse nome.' };
+    throw error;
+  }
+}
+
 async function deleteProductGroup(name) {
   if (['Bebidas', 'Complementos', 'Acompanhamentos', 'Molhos'].includes(name)) return { error: 'Este grupo é reservado para as opções dos produtos.' };
   const products = await prisma.product.count({ where: { category: name } });
   if (products) return { error: 'Mova ou exclua os produtos deste grupo antes de removê-lo.' };
+  const comboReferences = await prisma.product.count({ where: { optionGroupName: name } });
+  if (comboReferences) return { error: 'Remova este grupo das opções dos combos antes de excluí-lo.' };
   try {
     await prisma.productGroup.delete({ where: { name } });
     return { data: true };
@@ -212,13 +269,13 @@ async function deleteProductGroup(name) {
 }
 
 async function listActivePromotions(timestamp = new Date()) {
-  const promotions = await prisma.promotion.findMany({ where: { product: { active: true, category: { notIn: ['Complementos', 'Acompanhamentos', 'Molhos'] } } }, include: { product: true } });
+  const promotions = await prisma.promotion.findMany({ where: { product: { active: true, productGroup: { visibleInStorefront: true } } }, include: { product: true } });
   return promotions.filter(promotion => promotionIsActive(promotion, timestamp)).map(promotion => normalizeProduct(promotion.product, [promotion], timestamp));
 }
 
 async function getCatalogProduct(id, timestamp = new Date()) {
-  const product = await prisma.product.findUnique({ where: { id: Number(id) } });
-  if (!product?.active || ['Complementos', 'Acompanhamentos', 'Molhos'].includes(product.category)) return null;
+  const product = await prisma.product.findUnique({ where: { id: Number(id) }, include: { productGroup: true } });
+  if (!product?.active || !product.productGroup.visibleInStorefront) return null;
   const promotions = await prisma.promotion.findMany({ where: { productId: product.id } });
   const activePromotion = promotions.find(promotion => promotionIsActive(promotion, timestamp));
   return { name: product.name, price: activePromotion ? salePrice(product, activePromotion) : moneyNumber(product.price) };
@@ -238,14 +295,18 @@ async function calculateOrderItems(items, timestamp = new Date()) {
 
   const products = await prisma.product.findMany({
     where: { OR: filters },
-    include: { promotions: true },
+    include: {
+      promotions: true,
+      productGroup: { select: { visibleInStorefront: true } },
+      optionGroup: { include: { products: { where: { active: true }, select: { id: true, name: true } } } }
+    },
     orderBy: { id: 'asc' }
   });
   const productsById = new Map(products
-    .filter(product => product.active && !['Complementos', 'Acompanhamentos', 'Molhos'].includes(product.category))
+    .filter(product => product.active && product.productGroup.visibleInStorefront)
     .map(product => {
       const promotion = product.promotions.find(item => promotionIsActive(item, timestamp));
-      return [product.id, { name: product.name, price: promotion ? salePrice(product, promotion) : moneyNumber(product.price) }];
+      return [product.id, { ...product, price: promotion ? salePrice(product, promotion) : moneyNumber(product.price) }];
     }));
   const addonsByName = new Map();
   for (const product of products) {
@@ -262,8 +323,23 @@ async function calculateOrderItems(items, timestamp = new Date()) {
       if (price == null) throw new Error(`Adicional inválido: ${name}`);
       return { name, price };
     });
+    const optionIds = item.options || [];
+    if (new Set(optionIds).size !== optionIds.length || optionIds.length > product.maxOptionSelections) {
+      throw new Error(`Escolha até ${product.maxOptionSelections} opções diferentes para ${product.name}.`);
+    }
+    const optionProductIds = product.optionProductIds?.length
+      ? product.optionProductIds
+      : (product.optionGroup?.products || []).map(option => option.id);
+    const optionProducts = new Map((product.optionGroup?.products || [])
+      .filter(option => optionProductIds.includes(option.id))
+      .map(option => [option.id, option]));
+    const options = optionIds.map(id => {
+      const option = optionProducts.get(id);
+      if (!option) throw new Error(`Opção inválida para ${product.name}.`);
+      return option.name;
+    });
     const unitPrice = product.price + addons.reduce((total, addon) => total + addon.price, 0);
-    return { productId: item.productId, name: product.name, quantity: item.quantity, addons: addons.map(addon => addon.name), unitPrice, total: unitPrice * item.quantity };
+    return { productId: item.productId, name: product.name, quantity: item.quantity, addons: addons.map(addon => addon.name), options, unitPrice, total: unitPrice * item.quantity };
   });
 }
 
@@ -276,8 +352,18 @@ async function removeUnusedMenuImage(image, exceptProductId) {
 
 async function saveProduct(id, payload) {
   const parsed = productSchema.safeParse(payload);
-  if (!parsed.success) return { error: 'Confira nome, categoria, descrição, imagem e valor.', details: parsed.error.flatten() };
-  if (!await prisma.productGroup.findUnique({ where: { name: parsed.data.category } })) return { error: 'Selecione um grupo cadastrado.' };
+  if (!parsed.success) return { error: 'Confira nome, categoria, descrição, imagem, valor e opções do combo.', details: parsed.error.flatten() };
+  const categoryGroup = await prisma.productGroup.findUnique({ where: { name: parsed.data.category } });
+  if (!categoryGroup) return { error: 'Selecione um grupo cadastrado.' };
+  if (parsed.data.optionGroupName) {
+    if (parsed.data.optionGroupName === parsed.data.category) return { error: 'O grupo de opções precisa ser diferente do grupo do produto.' };
+    if (!await prisma.productGroup.findUnique({ where: { name: parsed.data.optionGroupName } })) return { error: 'Selecione um grupo de opções cadastrado.' };
+    const selectedProducts = await prisma.product.findMany({
+      where: { id: { in: parsed.data.optionProductIds }, category: parsed.data.optionGroupName, active: true },
+      select: { id: true }
+    });
+    if (selectedProducts.length !== parsed.data.optionProductIds.length) return { error: 'Selecione somente produtos ativos do grupo de opções escolhido.' };
+  }
   if (!parsed.data.image && !['Complementos', 'Acompanhamentos', 'Molhos'].includes(parsed.data.category)) return { error: 'Selecione uma imagem para produtos da vitrine.' };
   if (id) {
     try {
@@ -364,7 +450,7 @@ async function recordOrder(order) {
       paymentStatus: order.payment.status || 'pending',
       paymentData: encryptJson(order.payment),
       customerData: encryptJson(order.customer),
-      items: { create: order.items.map(item => ({ productId: item.productId, name: item.name, quantity: item.quantity, addons: item.addons, unitPrice: item.unitPrice, total: item.total })) }
+      items: { create: order.items.map(item => ({ productId: item.productId, name: item.name, quantity: item.quantity, addons: item.addons, options: item.options || [], unitPrice: item.unitPrice, total: item.total })) }
     },
     include: { items: true }
   });
@@ -467,4 +553,4 @@ async function getDashboard(period = 'daily') {
   };
 }
 
-module.exports = { addDocument, addEmployee, addTimeEntry, calculateOrderItems, createProductGroup, deleteEmployee, deleteProduct, deleteProductGroup, deletePromotion, getAddonPrice, getAddons, getCatalogProduct, getDashboard, getDocument, getEmployee, getMenuSettings, initializeAdminStore, listActivePromotions, listEmployees, listOrders, listProducts, lookupOrders, recordOrder, saveProduct, savePromotion, scheduleVacation, updateEmployee, updateOrderPayment, updateOrderStatus };
+module.exports = { addDocument, addEmployee, addTimeEntry, calculateOrderItems, createProductGroup, deleteEmployee, deleteProduct, deleteProductGroup, deletePromotion, getAddonPrice, getAddons, getCatalogProduct, getDashboard, getDocument, getEmployee, getMenuSettings, initializeAdminStore, listActivePromotions, listEmployees, listOrders, listProducts, lookupOrders, recordOrder, saveProduct, savePromotion, scheduleVacation, updateEmployee, updateOrderPayment, updateOrderStatus, updateProductGroup };

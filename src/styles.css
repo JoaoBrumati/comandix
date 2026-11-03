@@ -1,18 +1,18 @@
 :root {
-  --ink: #171525;
-  --muted: #737185;
-  --line: #e5e3eb;
-  --paper: #f8f8fb;
-  --white: #ffffff;
-  --lime: #6f2da8;
-  --lime-dark: #ffffff;
-  --coral: #7d3bb2;
-  --purple: #c8a9e3;
-  --yellow: #e5b868;
+  --ink: #35120d;
+  --muted: #806e68;
+  --line: #f1dfc2;
+  --paper: #fffaf0;
+  --white: #fffdf8;
+  --lime: #ffbf24;
+  --lime-dark: #4a160f;
+  --coral: #c41428;
+  --purple: #ffd76f;
+  --yellow: #f39b17;
   --sidebar: 236px;
-  --surface: #ffffff;
-  --accent-soft: #eee2f7;
-  --shadow-card: 0 8px 24px rgba(35, 25, 53, .045);
+  --surface: #fffdf8;
+  --accent-soft: #fff0c7;
+  --shadow-card: 0 8px 24px rgba(96, 45, 24, .08);
 }
 
 body {
@@ -34,7 +34,7 @@ a:focus-visible,
 input:focus-visible,
 select:focus-visible,
 textarea:focus-visible {
-  outline: 3px solid #b98ad8;
+  outline: 3px solid #e8a52a;
   outline-offset: 3px;
 }
 
@@ -215,9 +215,9 @@ textarea:focus-visible {
   overflow: auto;
   padding: 0 14px 18px;
   border: 0;
-  border-right: 1px solid #e8e0ef;
+  border-right: 1px solid #f1dfc2;
   border-radius: 0;
-  background: #f7f1fb;
+  background: #fffdf8;
   box-shadow: none;
   opacity: 1;
   pointer-events: auto;
@@ -240,13 +240,24 @@ textarea:focus-visible {
   gap: 12px;
   margin: 0 -14px 14px;
   padding: 0 16px;
-  border-bottom: 1px solid #e8e0ef;
+  border-bottom: 1px solid #f1dfc2;
 }
 
 .drawer-heading .brand {
   padding: 0;
-  color: #7132a4;
+  color: #a81920;
   font-size: 23px;
+}
+
+.store-brand {
+  max-width: 100%;
+}
+
+.store-brand-logo {
+  display: block;
+  width: min(148px, 100%);
+  height: auto;
+  object-fit: contain;
 }
 
 .drawer-close {
@@ -270,7 +281,7 @@ textarea:focus-visible {
 
 .nav-label {
   margin: 14px 10px 5px;
-  color: #8b8596;
+  color: #806e68;
   font-size: 9px;
   font-weight: 700;
   letter-spacing: 1.15px;
@@ -281,14 +292,14 @@ textarea:focus-visible {
   min-height: 42px;
   margin: 0;
   border-radius: 9px;
-  color: #555164;
+  color: #5b3324;
   font-size: 13px;
 }
 
 .nav-item:hover,
 .nav-item.active {
-  background: #eadcf5;
-  color: #552184;
+  background: #ffe8ad;
+  color: #7a170f;
 }
 
 .nav-icon {
@@ -303,7 +314,7 @@ textarea:focus-visible {
 .admin-nav-item {
   margin-top: 0;
   padding-top: 10px;
-  border-top: 1px solid #e8e0ef;
+  border-top: 1px solid #f1dfc2;
   border-radius: 0 0 9px 9px;
 }
 
@@ -317,11 +328,11 @@ textarea:focus-visible {
 
 .support-card {
   border-radius: 12px;
-  background: #eee2f7;
+  background: #fff0c7;
 }
 
 .support-card:hover {
-  background: #e7d5f3;
+  background: #ffe5a0;
 }
 
 .support-icon {
@@ -502,6 +513,23 @@ textarea:focus-visible {
   transform: scale(1.035);
 }
 
+.store-hero.store-hero-banner {
+  display: block;
+  height: auto;
+  min-height: 0;
+  border: 0;
+  border-radius: 20px;
+  background: #ffbf24;
+  box-shadow: var(--shadow-card);
+  text-decoration: none;
+}
+
+.store-hero-banner img {
+  display: block;
+  width: 100%;
+  height: auto;
+}
+
 .hero-art-caption {
   position: absolute;
   z-index: 1;
@@ -539,7 +567,7 @@ textarea:focus-visible {
 .catalog-heading .section-kicker {
   display: block;
   margin: 0 0 9px;
-  color: #7a3a9d;
+  color: #a81920;
 }
 
 .menu-title {
@@ -600,7 +628,7 @@ textarea:focus-visible {
   border-color: var(--line);
   border-radius: 13px;
   background: var(--surface);
-  color: #5d586b;
+  color: #5b3324;
   font-size: 11px;
 }
 
@@ -621,8 +649,8 @@ textarea:focus-visible {
 }
 
 .layout-option.active {
-  background: #eee2f7;
-  color: #552184;
+  background: #fff0c7;
+  color: #7a170f;
 }
 
 .food-grid {
@@ -641,7 +669,7 @@ textarea:focus-visible {
 
 .food-card:hover {
   transform: translateY(-4px);
-  border-color: #cbb2de;
+  border-color: #e5bf74;
   box-shadow: var(--shadow-card);
 }
 
@@ -667,8 +695,8 @@ textarea:focus-visible {
 }
 
 .promotion-tag {
-  background: #eee2f7;
-  color: #682a93;
+  background: #fff0c7;
+  color: #a81920;
 }
 
 .add-button {
@@ -698,7 +726,7 @@ textarea:focus-visible {
 }
 
 .price {
-  color: #683092;
+  color: #9c1b19;
   font-size: 15px;
 }
 
@@ -744,7 +772,7 @@ textarea:focus-visible {
 
 .simple-page-header .section-kicker {
   margin: 0 0 10px;
-  color: #7a3a9d;
+  color: #a81920;
 }
 
 .simple-page-header h1,
@@ -775,7 +803,7 @@ textarea:focus-visible {
 .admin-login-view .section-kicker,
 .admin-page-heading .section-kicker,
 .admin-section-heading .section-kicker {
-  color: #7a3a9d;
+  color: #a81920;
 }
 
 .lookup-button,
@@ -792,8 +820,8 @@ textarea:focus-visible {
 .admin-logout {
   border-radius: 11px;
   border-color: var(--line);
-  background: #f5f2f8;
-  color: #514762;
+  background: #fff4d8;
+  color: #5b3324;
 }
 
 .admin-metric,
@@ -886,6 +914,144 @@ textarea:focus-visible {
   color: white;
 }
 
+#combo-choice-group[hidden] {
+  display: none;
+}
+
+.combo-choice-help,
+.combo-choice-empty {
+  margin: 0 0 10px;
+  color: var(--muted);
+  font-size: 12px;
+}
+
+.combo-choice-list {
+  display: grid;
+  gap: 7px;
+}
+
+.combo-choice-item {
+  display: grid;
+  grid-template-columns: 18px 38px minmax(0, 1fr);
+  align-items: center;
+  gap: 9px;
+  min-height: 48px;
+  padding: 5px 9px;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  color: var(--ink);
+  cursor: pointer;
+  font-size: 12px;
+}
+
+.combo-choice-item input {
+  width: 16px;
+  height: 16px;
+  accent-color: var(--coral);
+}
+
+.combo-choice-item img {
+  width: 38px;
+  height: 38px;
+  border-radius: 7px;
+  object-fit: cover;
+}
+
+#admin-menu-panel .group-row {
+  flex-wrap: wrap;
+}
+
+#admin-menu-panel .group-row button {
+  width: auto;
+  min-width: 62px;
+  height: 28px;
+  padding: 0 8px;
+  border-radius: 8px;
+  font: inherit;
+}
+
+#admin-menu-panel .group-row button:disabled {
+  opacity: .5;
+}
+
+#admin-menu-panel .group-manager-help {
+  margin: 0;
+  color: var(--muted);
+  font-size: 11px;
+}
+
+#admin-menu-panel .group-storefront-toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  color: var(--muted);
+  cursor: pointer;
+  font-size: 10px;
+  white-space: nowrap;
+}
+
+#admin-menu-panel .group-manager .group-storefront-toggle input {
+  width: 15px;
+  min-height: 0;
+  height: 15px;
+  margin: 0;
+  accent-color: var(--coral);
+}
+
+#admin-menu-panel .combo-option-products {
+  display: grid;
+  grid-column: 1 / -1;
+  gap: 9px;
+  margin: 0;
+  padding: 14px;
+  border: 1px solid var(--line);
+  border-radius: 12px;
+}
+
+#admin-menu-panel .combo-option-products[hidden] {
+  display: none;
+}
+
+#admin-menu-panel .combo-option-products legend {
+  padding: 0 5px;
+  color: var(--ink);
+  font-size: 12px;
+  font-weight: 700;
+}
+
+#admin-menu-panel .combo-option-products p,
+#admin-menu-panel .combo-option-empty {
+  margin: 0;
+  color: var(--muted);
+  font-size: 11px;
+}
+
+#admin-menu-panel #combo-option-product-list {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+  gap: 7px;
+}
+
+#admin-menu-panel .combo-option-product {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-height: 38px;
+  padding: 6px 9px;
+  border: 1px solid var(--line);
+  border-radius: 9px;
+  cursor: pointer;
+  font-size: 11px;
+}
+
+#admin-menu-panel .combo-option-product input {
+  width: 16px;
+  min-height: 0;
+  height: 16px;
+  margin: 0;
+  accent-color: var(--coral);
+}
+
 .startup-error {
   margin: 18px clamp(20px, 5vw, 72px) 0;
   border-color: #e8b6a9;
@@ -939,7 +1105,7 @@ textarea:focus-visible {
   .sidebar {
     width: min(var(--sidebar), 86vw);
     padding: 0 14px 18px;
-    border-right: 1px solid #e8e0ef;
+    border-right: 1px solid #f1dfc2;
     border-radius: 0 18px 18px 0;
     box-shadow: 0 20px 70px rgba(35, 25, 53, .18);
     opacity: 0;
@@ -1203,7 +1369,7 @@ textarea:focus-visible {
     align-items: stretch;
     gap: 4px;
     padding: 5px;
-    border: 1px solid #e8e0ef;
+    border: 1px solid #f1dfc2;
     border-radius: 19px;
     background: #fff;
     box-shadow: 0 8px 26px rgba(35, 25, 53, .14);
@@ -1242,8 +1408,8 @@ textarea:focus-visible {
   }
 
   .mobile-tab.active {
-    background: #eee2f7;
-    color: #552184;
+    background: #fff0c7;
+    color: #7a170f;
   }
 
   .mobile-tab.active .mobile-tab-icon > img {
@@ -1262,7 +1428,7 @@ textarea:focus-visible {
     padding: 0 2px;
     border: 1px solid #fff;
     border-radius: 10px;
-    background: #6f2da8;
+    background: #c41428;
     color: #fff;
     font-size: 8px;
     line-height: 1;
@@ -1461,7 +1627,7 @@ textarea:focus-visible {
 .dashboard-report-heading .section-kicker {
   display: block;
   margin-bottom: 7px;
-  color: #7132a4;
+  color: #a81920;
   font-size: 10px;
   font-weight: 700;
   letter-spacing: .1em;
@@ -1510,7 +1676,7 @@ textarea:focus-visible {
 
 .dashboard-controls .admin-periods {
   border: 0;
-  background: #f2f1f5;
+  background: #fff4d8;
 }
 
 .dashboard-controls .admin-periods button {
@@ -1521,7 +1687,7 @@ textarea:focus-visible {
 
 .dashboard-controls .admin-periods button.active {
   background: var(--surface);
-  color: #7132a4;
+  color: #a81920;
   box-shadow: 0 1px 5px rgba(35, 25, 53, .12);
 }
 
@@ -1611,17 +1777,17 @@ textarea:focus-visible {
 }
 
 .dashboard-revenue-chart svg line {
-  stroke: #eceaf1;
+  stroke: #f1dfc2;
   stroke-dasharray: 3 4;
 }
 
 .dashboard-revenue-chart svg text {
-  fill: #858294;
+  fill: #806e68;
   font: 9px 'DM Sans', sans-serif;
 }
 
 .dashboard-revenue-chart svg rect {
-  fill: #7132a4;
+  fill: #c41428;
   transition: opacity .2s;
 }
 
@@ -1630,7 +1796,7 @@ textarea:focus-visible {
 }
 
 .dashboard-revenue-chart svg .dashboard-chart-label {
-  fill: #706d7d;
+  fill: #806e68;
   font-size: 10px;
 }
 
@@ -1699,7 +1865,7 @@ textarea:focus-visible {
 
 .dashboard-status-legend li > span {
   justify-content: flex-start;
-  color: #625f70;
+  color: #5b3324;
   font-size: 10px;
 }
 
@@ -1730,7 +1896,7 @@ textarea:focus-visible {
 }
 
 .dashboard-product-rank {
-  color: #7132a4;
+  color: #a81920;
   font-size: 10px;
   font-weight: 700;
 }
@@ -1747,7 +1913,7 @@ textarea:focus-visible {
   height: 5px;
   overflow: hidden;
   border-radius: 999px;
-  background: #f0eef3;
+  background: #f5e9d8;
 }
 
 .dashboard-product-bar i {
@@ -1755,7 +1921,7 @@ textarea:focus-visible {
   width: var(--product-share);
   height: 100%;
   border-radius: inherit;
-  background: #7132a4;
+  background: #c41428;
 }
 
 .dashboard-product-row small {
@@ -1934,7 +2100,7 @@ textarea:focus-visible {
   padding: 4px;
   border: 0;
   border-radius: 12px;
-  background: #f4f1f8;
+  background: #fff4d8;
 }
 
 #admin-orders-panel .admin-periods button {
@@ -1944,8 +2110,8 @@ textarea:focus-visible {
 }
 
 #admin-orders-panel .admin-periods button.active {
-  background: #7132a4;
-  box-shadow: 0 3px 8px rgba(113, 50, 164, .2);
+  background: #c41428;
+  box-shadow: 0 3px 8px rgba(196, 20, 40, .2);
 }
 
 #refresh-kanban {
@@ -1960,7 +2126,7 @@ textarea:focus-visible {
   grid-auto-columns: minmax(270px, 1fr);
   gap: 14px;
   padding: 2px 2px 16px;
-  scrollbar-color: #bca4d1 transparent;
+  scrollbar-color: #e5bf74 transparent;
 }
 
 #admin-orders-panel .kanban-column {
@@ -1968,20 +2134,16 @@ textarea:focus-visible {
   padding: 13px;
   border: 1px solid #e9e5ee;
   border-radius: 15px;
-  background: #f8f7fa;
+  background: #fff9ed;
   transition: border-color .2s, background .2s;
 }
 
 #admin-orders-panel .kanban-column[data-kanban-column="new"] {
-  border-top: 3px solid #8a51b3;
+  border-top: 3px solid #c41428;
 }
 
 #admin-orders-panel .kanban-column[data-kanban-column="preparing"] {
   border-top: 3px solid #d59b46;
-}
-
-#admin-orders-panel .kanban-column[data-kanban-column="ready"] {
-  border-top: 3px solid #4b9b81;
 }
 
 #admin-orders-panel .kanban-column[data-kanban-column="out_for_delivery"] {
@@ -2020,8 +2182,8 @@ textarea:focus-visible {
 }
 
 #admin-orders-panel .kanban-dropzone.drag-over {
-  background: #eee5f6;
-  outline: 1px dashed #a77bd0;
+  background: #fff0c7;
+  outline: 1px dashed #e8a52a;
 }
 
 #admin-orders-panel .kanban-card {
@@ -2029,7 +2191,7 @@ textarea:focus-visible {
   padding: 14px;
   border: 1px solid #e9e5ee;
   border-top: 1px solid #e9e5ee;
-  border-left: 3px solid #a77bd0;
+  border-left: 3px solid #e8a52a;
   border-radius: 12px;
   box-shadow: 0 3px 10px rgba(35, 25, 53, .04);
   transition: transform .18s, box-shadow .18s;
@@ -2051,12 +2213,12 @@ textarea:focus-visible {
 }
 
 #admin-orders-panel .kanban-customer {
-  color: #393346;
+  color: #35120d;
   font-size: 11px;
 }
 
 #admin-orders-panel .kanban-items {
-  color: #393346;
+  color: #35120d;
   font-size: 11px;
   line-height: 1.55;
 }
@@ -2110,7 +2272,7 @@ textarea:focus-visible {
 
 #admin-menu-panel .group-manager {
   gap: 16px;
-  background: #fbf9fd;
+  background: #fffaf0;
 }
 
 #admin-menu-panel .group-manager form {
@@ -2121,7 +2283,7 @@ textarea:focus-visible {
 #admin-menu-panel .menu-form label,
 #admin-menu-panel .promotion-form label {
   gap: 7px;
-  color: #5e596a;
+  color: #5b3324;
   font-size: 11px;
   font-weight: 600;
 }
@@ -2151,9 +2313,9 @@ textarea:focus-visible {
 #admin-menu-panel .promotion-form input:focus,
 #admin-menu-panel .promotion-form select:focus,
 #admin-menu-panel .group-manager input:focus {
-  border-color: #a77bd0;
+  border-color: #e8a52a;
   outline: none;
-  box-shadow: 0 0 0 3px rgba(167, 123, 208, .15);
+  box-shadow: 0 0 0 3px rgba(232, 165, 42, .18);
 }
 
 #admin-menu-panel .menu-form input[type="file"] {
@@ -2185,7 +2347,7 @@ textarea:focus-visible {
 }
 
 #admin-menu-panel .promotion-manager {
-  background: linear-gradient(135deg, #fff 0%, #fbf8fe 100%);
+  background: linear-gradient(135deg, #fffdf8 0%, #fff8e8 100%);
 }
 
 #admin-menu-panel .promotion-manager > .admin-section-heading {
@@ -2230,7 +2392,7 @@ textarea:focus-visible {
   min-height: auto;
   padding: 10px 12px;
   border-radius: 9px;
-  background: #f7f2fb;
+  background: #fff4d8;
 }
 
 #admin-menu-panel .promotion-form-actions {
@@ -2256,7 +2418,7 @@ textarea:focus-visible {
 #admin-menu-panel .menu-product-group > h3 {
   padding-bottom: 10px;
   border-bottom: 1px solid #efecf2;
-  color: #393346;
+  color: #35120d;
   font: 600 15px 'Space Grotesk', sans-serif;
 }
 
@@ -2310,7 +2472,7 @@ textarea:focus-visible {
   border: 1px solid #e4e0ea;
   border-radius: 9px;
   background: #fff;
-  color: #514762;
+  color: #5b3324;
   font-size: 10px;
   font-weight: 600;
   transition: background .15s, border-color .15s;
@@ -2318,7 +2480,7 @@ textarea:focus-visible {
 
 #admin-menu-panel .menu-product-actions button:hover {
   border-color: #d7c4e7;
-  background: #f7f2fb;
+  background: #fff4d8;
 }
 
 #admin-menu-panel .menu-product-actions .employee-delete {

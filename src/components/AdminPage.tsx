@@ -114,6 +114,7 @@ function AdminPage() {
               <label>Novo grupo<input id="group-name" maxLength={50} required placeholder="Ex.: Lanches" /></label>
               <button className="admin-primary" type="submit">Adicionar grupo</button>
             </form>
+            <p className="group-manager-help">Desmarque para ocultar a categoria da tela inicial. Grupos ocultos também podem ser usados como opções de combos.</p>
             <div id="group-list" className="group-list" />
           </section>
           <section className="promotion-manager">
@@ -141,6 +142,13 @@ function AdminPage() {
             <label>Nome<input id="menu-product-name" required /></label>
             <label>Grupo<select id="menu-product-category" required><option value="">Selecione um grupo</option></select></label>
             <label>Preço (R$)<input id="menu-product-price" type="number" min="0" step="0.01" required /></label>
+            <label>Grupo de opções do combo<select id="menu-product-option-group"><option value="">Não usa escolhas adicionais</option></select></label>
+            <label>Máximo de opções diferentes<input id="menu-product-max-options" type="number" min="1" max="4" step="1" defaultValue="4" /></label>
+            <fieldset className="combo-option-products" id="combo-option-products" hidden>
+              <legend>Produtos disponíveis para o cliente</legend>
+              <p>Marque somente os produtos que poderão ser escolhidos neste combo.</p>
+              <div id="combo-option-product-list" />
+            </fieldset>
             <label>Imagem do produto<input id="menu-product-image" type="file" accept="image/jpeg,image/png,image/webp" /></label>
             <div className="menu-image-preview" id="menu-image-preview" hidden>
               <img alt="Foto atual do produto" />

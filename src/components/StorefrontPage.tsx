@@ -2,20 +2,9 @@ function StorefrontPage() {
   return (
     <div className="page-view active" id="home-page">
       <section className="content-section">
-        <section className="store-hero">
-          <div className="store-hero-copy">
-            <span className="hero-eyebrow"><span className="hero-status-dot" /> SABOR EM CADA PEDIDO</span>
-            <h1>Seu próximo pedido, do seu jeito.</h1>
-            <p>Escolha com calma, personalize do seu jeito e receba uma refeição preparada na hora.</p>
-            <div className="hero-actions">
-              <a className="hero-primary-action" href="#catalog">Explorar cardápio <span aria-hidden="true">↗</span></a>
-            </div>
-          </div>
-          <div className="store-hero-art" aria-hidden="true">
-            <img src="/img/menu/0482f8b3-033b-49dd-8ae0-59101eaf9130.webp" alt="" />
-            <div className="hero-art-caption"><span>UMA BOA ESCOLHA</span><strong>Sabor que conquista.</strong></div>
-          </div>
-        </section>
+        <a className="store-hero store-hero-banner" href="#catalog" aria-label="Faça seu pedido de salgados Fino Sabor">
+          <img src="/img/fino-sabor-banner.png" alt="Fino Sabor Salgados: uma mistura de sabores e temperos deliciosos. Faça seu pedido." />
+        </a>
 
         <section className="catalog-section" id="catalog">
           <div className="catalog-heading">

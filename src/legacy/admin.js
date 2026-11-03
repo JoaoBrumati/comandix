@@ -5,6 +5,8 @@ const employeeForm = document.querySelector('#employee-form');
 let selectedPeriod = 'daily';
 let requestedAdminSection = 'dashboard';
 let dashboardOrders = [];
+let adminMenuProducts = [];
+let adminMenuGroups = [];
 let kanbanRefreshTimer = null;
 let kanbanLoading = false;
 const kanbanPeriodStorageKey = 'comandix-kanban-period';
@@ -17,7 +19,6 @@ try {
 const orderStages = [
   { id: 'new', label: 'Pedido realizado' },
   { id: 'preparing', label: 'Pedido em produção' },
-  { id: 'ready', label: 'Pedido pronto' },
   { id: 'out_for_delivery', label: 'Pedido em rota de entrega' },
   { id: 'completed', label: 'Pedido entregue' },
   { id: 'cancelled', label: 'Pedido cancelado' }
@@ -165,7 +166,7 @@ async function loadDashboard() {
     ['Ticket médio', formatCurrency(averageOrder), 'Faturamento ÷ total de pedidos']
   ];
   document.querySelector('#admin-metrics').innerHTML = metrics.map(([title, value, note], index) => `<article class="admin-metric" data-dashboard-group="${index === 0 || index === 2 ? 'orders' : 'revenue'}"><span>${title}</span><strong>${value}</strong><small>${note}</small></article>`).join('');
-  document.querySelector('#admin-orders-summary').innerHTML = data.orders.length ? data.orders.map(order => `<article class="admin-order-row"><div><strong>${escapeHtml(order.items.map(item => `${item.quantity}x ${item.name}`).join(', '))}</strong><small>${formatDateTime(order.createdAt)} · ${escapeHtml(order.payment.method.toUpperCase())}</small></div><span>Itens ${formatCurrency(order.subtotal)}<small>Entrega ${formatCurrency(order.deliveryFee)}</small></span><b>${formatCurrency(order.total)}</b></article>`).join('') : '<div class="admin-empty">Ainda não há pedidos registrados neste período.</div>';
+  document.querySelector('#admin-orders-summary').innerHTML = data.orders.length ? data.orders.map(order => `<article class="admin-order-row"><div><strong>${escapeHtml(order.items.map(item => `${item.quantity}x ${item.name}${item.options?.length ? ` (Escolhas: ${item.options.join(', ')})` : ''}${item.addons?.length ? ` (Adicionais: ${item.addons.join(', ')})` : ''}`).join(', '))}</strong><small>${formatDateTime(order.createdAt)} · ${escapeHtml(order.payment.method.toUpperCase())}</small></div><span>Itens ${formatCurrency(order.subtotal)}<small>Entrega ${formatCurrency(order.deliveryFee)}</small></span><b>${formatCurrency(order.total)}</b></article>`).join('') : '<div class="admin-empty">Ainda não há pedidos registrados neste período.</div>';
   renderDashboardRevenue(data.orders);
   renderDashboardStatuses(data.orders, data.orderCount);
   renderDashboardProducts(data.orders);
@@ -215,15 +216,17 @@ function renderDashboardRevenue(orders) {
 
 function renderDashboardStatuses(orders, periodOrderCount) {
   const stages = [
-    { id: 'completed', label: 'Entregues', color: '#7132a4' },
-    { id: 'preparing', label: 'Em produção', color: '#a77bd0' },
-    { id: 'ready', label: 'Prontos', color: '#c7a8e7' },
-    { id: 'out_for_delivery', label: 'Em entrega', color: '#dfcff1' },
-    { id: 'new', label: 'Novos', color: '#ece4f5' },
+    { id: 'completed', label: 'Entregues', color: '#c41428' },
+    { id: 'preparing', label: 'Em produção', color: '#f39b17' },
+    { id: 'out_for_delivery', label: 'Em entrega', color: '#ffbf24' },
+    { id: 'new', label: 'Novos', color: '#f1dfc2' },
     { id: 'cancelled', label: 'Cancelados', color: '#e7a49a' }
   ];
   const counts = Object.fromEntries(stages.map(stage => [stage.id, 0]));
-  for (const order of orders) counts[counts[order.status] === undefined ? 'new' : order.status] += 1;
+  for (const order of orders) {
+    const status = order.status === 'ready' ? 'preparing' : order.status;
+    counts[counts[status] === undefined ? 'new' : status] += 1;
+  }
   const total = orders.length;
   let accumulated = 0;
   const stops = stages.map(stage => {
@@ -259,8 +262,8 @@ function exportDashboardOrders() {
     ...dashboardOrders.map(order => [
       order.orderId,
       formatDateTime(order.createdAt),
-      orderStages.find(stage => stage.id === order.status)?.label || 'Pedido realizado',
-      order.items.map(item => `${item.quantity}x ${item.name}`).join(', '),
+      orderStages.find(stage => stage.id === (order.status === 'ready' ? 'preparing' : order.status))?.label || 'Pedido realizado',
+      order.items.map(item => `${item.quantity}x ${item.name}${item.options?.length ? ` (Escolhas: ${item.options.join(', ')})` : ''}${item.addons?.length ? ` (Adicionais: ${item.addons.join(', ')})` : ''}`).join(', '),
       order.subtotal.toFixed(2),
       order.deliveryFee.toFixed(2),
       order.total.toFixed(2),
@@ -282,13 +285,14 @@ function exportDashboardOrders() {
 }
 
 function orderCard(order) {
-  const items = order.items.map(item => `${item.quantity}× ${escapeHtml(item.name)}`).join(', ');
+  const displayStatus = order.status === 'ready' ? 'preparing' : order.status;
+  const items = order.items.map(item => `${item.quantity}× ${escapeHtml(item.name)}${item.options?.length ? ` (Escolhas: ${escapeHtml(item.options.join(', '))})` : ''}${item.addons?.length ? ` (Adicionais: ${escapeHtml(item.addons.join(', '))})` : ''}`).join(', ');
   const date = formatDateTime(order.createdAt);
   const customer = order.customer?.name ? `<p class="kanban-customer">${escapeHtml(order.customer.name)}</p>` : '';
   const address = order.customer?.address ? `<p class="kanban-address">${escapeHtml(order.customer.address)}</p>` : '';
   const phone = order.customer?.phone ? `<p class="kanban-address">Telefone: ${escapeHtml(order.customer.phone)}</p>` : '';
   const reference = order.customer?.reference ? `<p class="kanban-address">Referência: ${escapeHtml(order.customer.reference)}</p>` : '';
-  return `<article class="kanban-card" draggable="true" data-order-id="${escapeHtml(order.orderId)}"><header><strong>Pedido #${escapeHtml(order.orderId.slice(0, 8).toUpperCase())}</strong><span>${date}</span></header>${customer}<p class="kanban-items">${items}</p>${address}${phone}${reference}<div class="kanban-card-footer"><strong>${formatCurrency(order.total)}</strong><select data-kanban-status="${escapeHtml(order.orderId)}" aria-label="Etapa do pedido">${orderStages.map(stage => `<option value="${stage.id}" ${stage.id === order.status ? 'selected' : ''}>${stage.label}</option>`).join('')}</select></div></article>`;
+  return `<article class="kanban-card" draggable="true" data-order-id="${escapeHtml(order.orderId)}"><header><strong>Pedido #${escapeHtml(order.orderId.slice(0, 8).toUpperCase())}</strong><span>${date}</span></header>${customer}<p class="kanban-items">${items}</p>${address}${phone}${reference}<div class="kanban-card-footer"><strong>${formatCurrency(order.total)}</strong><select data-kanban-status="${escapeHtml(order.orderId)}" aria-label="Etapa do pedido">${orderStages.map(stage => `<option value="${stage.id}" ${stage.id === displayStatus ? 'selected' : ''}>${stage.label}</option>`).join('')}</select></div></article>`;
 }
 
 async function loadKanban() {
@@ -297,7 +301,7 @@ async function loadKanban() {
   try {
     const orders = await adminRequest(`/api/admin/orders?period=${kanbanPeriod}`);
     document.querySelector('#orders-kanban').innerHTML = orderStages.map(stage => {
-      const stageOrders = orders.filter(order => (order.status || 'new') === stage.id);
+      const stageOrders = orders.filter(order => (order.status === 'ready' ? 'preparing' : order.status || 'new') === stage.id);
       return `<section class="kanban-column" data-kanban-column="${stage.id}"><header><h3>${stage.label}</h3><span>${stageOrders.length}</span></header><div class="kanban-dropzone" data-drop-status="${stage.id}">${stageOrders.length ? stageOrders.map(orderCard).join('') : '<div class="kanban-empty">Solte pedidos aqui</div>'}</div></section>`;
     }).join('');
   } finally {
@@ -353,11 +357,19 @@ function promotionMarkup(promotion) {
 
 async function loadAdminMenu() {
   const menu = await adminRequest('/api/admin/menu');
-  const orderedGroups = getStoredGroupOrder(menu.groups);
+  adminMenuProducts = menu.products;
+  const groups = menu.groups.map(group => typeof group === 'string' ? { name: group, visibleInStorefront: true } : group);
+  const orderedGroups = getStoredGroupOrder(groups.map(group => group.name));
+  adminMenuGroups = orderedGroups;
+  const groupSettings = new Map(groups.map(group => [group.name, group]));
   const categorySelect = document.querySelector('#menu-product-category');
   const currentCategory = categorySelect.value;
   categorySelect.innerHTML = '<option value="">Selecione um grupo</option>' + orderedGroups.map(group => `<option value="${escapeHtml(group)}">${escapeHtml(group)}</option>`).join('');
   if (orderedGroups.includes(currentCategory)) categorySelect.value = currentCategory;
+  const optionGroupSelect = document.querySelector('#menu-product-option-group');
+  const currentOptionGroup = optionGroupSelect.value;
+  renderOptionGroupSelect(currentOptionGroup);
+  renderComboOptionProducts(null);
   const scheduledProductIds = new Set(menu.promotions.map(promotion => promotion.productId));
   const promotionOptions = '<option value="">Selecione um produto</option>' + menu.products.filter(product => product.active || scheduledProductIds.has(product.id)).map(product => `<option value="${product.id}" data-price="${product.price}">${escapeHtml(product.name)}${product.active ? '' : ' (Oculto)'}</option>`).join('');
   document.querySelector('#promotion-product').innerHTML = promotionOptions;
@@ -367,8 +379,39 @@ async function loadAdminMenu() {
   document.querySelector('#menu-product-list').innerHTML = menu.products.length ? orderedProductGroups.map(([category, products]) => `<section class="menu-product-group"><h3>${escapeHtml(category)}</h3>${products.map(productMarkup).join('')}</section>`).join('') : '<div class="admin-empty">Nenhum produto cadastrado.</div>';
   const productCounts = menu.products.reduce((counts, product) => ({ ...counts, [product.category]: (counts[product.category] || 0) + 1 }), {});
   const protectedGroups = new Set(['Bebidas', 'Complementos', 'Acompanhamentos', 'Molhos']);
-  document.querySelector('#group-list').innerHTML = orderedGroups.map(group => `<div class="group-row" draggable="true" data-group-name="${escapeHtml(group)}"><span>${escapeHtml(group)}</span><small>${productCounts[group] || 0} produtos</small><button type="button" data-delete-group="${escapeHtml(group)}" ${protectedGroups.has(group) ? 'disabled title="Grupo reservado para complementos"' : ''} aria-label="Excluir grupo ${escapeHtml(group)}">×</button></div>`).join('');
+  document.querySelector('#group-list').innerHTML = orderedGroups.map(group => {
+    const hasProducts = Boolean(productCounts[group]);
+    const usedByCombos = menu.products.some(product => product.optionGroupName === group);
+    const protectedGroup = protectedGroups.has(group);
+    const deleteTitle = protectedGroup
+      ? 'Grupo reservado para adicionais'
+      : hasProducts
+        ? 'Mova ou exclua os produtos deste grupo antes de removê-lo'
+        : usedByCombos
+          ? 'Remova este grupo das opções dos combos antes de excluí-lo'
+          : `Excluir grupo ${group}`;
+    return `<div class="group-row" draggable="true" data-group-name="${escapeHtml(group)}"><span class="group-name">${escapeHtml(group)}</span><small>${productCounts[group] || 0} produtos</small><label class="group-storefront-toggle"><input type="checkbox" data-toggle-group="${escapeHtml(group)}" ${groupSettings.get(group)?.visibleInStorefront === false ? '' : 'checked'} /><span>Mostrar na tela inicial</span></label><button type="button" data-edit-group="${escapeHtml(group)}" ${protectedGroup ? 'disabled title="Grupo reservado para adicionais"' : ''}>Editar</button><button type="button" data-delete-group="${escapeHtml(group)}" ${protectedGroup || hasProducts || usedByCombos ? 'disabled' : ''} title="${escapeHtml(deleteTitle)}">Excluir</button></div>`;
+  }).join('');
   saveGroupOrder(orderedGroups);
+}
+
+async function updateGroupVisibility(event) {
+  const checkbox = event.target.closest('[data-toggle-group]');
+  if (!checkbox) return;
+  checkbox.disabled = true;
+  try {
+    await adminRequest(`/api/admin/menu/groups/${encodeURIComponent(checkbox.dataset.toggleGroup)}`, {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ visibleInStorefront: checkbox.checked })
+    });
+    showAdminToast(checkbox.checked ? 'Grupo exibido na tela inicial.' : 'Grupo oculto da tela inicial.');
+  } catch (error) {
+    checkbox.checked = !checkbox.checked;
+    showAdminToast(error.message);
+  } finally {
+    checkbox.disabled = false;
+  }
 }
 
 async function saveProductGroup(event) {
@@ -383,6 +426,24 @@ async function saveProductGroup(event) {
 }
 
 async function handleGroupAction(event) {
+  const editButton = event.target.closest('[data-edit-group]');
+  if (editButton && !editButton.disabled) {
+    const oldName = editButton.dataset.editGroup;
+    const name = window.prompt('Novo nome do grupo:', oldName)?.trim();
+    if (!name || name === oldName) return;
+    try {
+      await adminRequest(`/api/admin/menu/groups/${encodeURIComponent(oldName)}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ name })
+      });
+      const groups = [...document.querySelectorAll('#group-list [data-group-name]')].map(row => row.dataset.groupName === oldName ? name : row.dataset.groupName);
+      saveGroupOrder(groups);
+      await loadAdminMenu();
+      showAdminToast('Grupo renomeado.');
+    } catch (error) { showAdminToast(error.message); }
+    return;
+  }
   const button = event.target.closest('[data-delete-group]');
   if (!button || button.disabled) return;
   if (!window.confirm(`Excluir o grupo "${button.dataset.deleteGroup}"?`)) return;
@@ -472,6 +533,14 @@ async function handleVacationSchedule(event) {
   } catch (error) { showAdminToast(error.message); }
 }
 
+function renderOptionGroupSelect(selectedGroup = '') {
+  const category = document.querySelector('#menu-product-category').value;
+  const select = document.querySelector('#menu-product-option-group');
+  const candidates = adminMenuGroups.filter(group => group !== category && !['Bebidas', 'Complementos', 'Acompanhamentos', 'Molhos'].includes(group));
+  select.innerHTML = '<option value="">Não usa escolhas adicionais</option>' + candidates.map(group => `<option value="${escapeHtml(group)}">${escapeHtml(group)}</option>`).join('');
+  select.value = candidates.includes(selectedGroup) ? selectedGroup : '';
+}
+
 function setProductForm(product = null) {
   const form = document.querySelector('#menu-form');
   form.reset();
@@ -480,6 +549,14 @@ function setProductForm(product = null) {
   const categorySelect = document.querySelector('#menu-product-category');
   if (product?.category && ![...categorySelect.options].some(option => option.value === product.category)) categorySelect.add(new Option(product.category, product.category));
   categorySelect.value = product?.category || '';
+  renderOptionGroupSelect(product?.optionGroupName || '');
+  document.querySelector('#menu-product-max-options').value = product?.maxOptionSelections || 4;
+  const configuredOptionIds = product?.optionProductIds?.length
+    ? product.optionProductIds
+    : product?.optionGroupName
+      ? adminMenuProducts.filter(option => option.active && option.category === product.optionGroupName).map(option => option.id)
+      : [];
+  renderComboOptionProducts(configuredOptionIds);
   document.querySelector('#menu-product-price').value = product?.price ?? '';
   document.querySelector('#menu-product-description').value = product?.description || '';
   document.querySelector('#menu-product-active').value = String(product?.active ?? true);
@@ -489,6 +566,26 @@ function setProductForm(product = null) {
   if (product?.image) imagePreview.querySelector('img').src = product.image;
   form.hidden = false;
   form.scrollIntoView({ behavior: 'smooth', block: 'start' });
+}
+
+function renderComboOptionProducts(selectedIds = null) {
+  const groupName = document.querySelector('#menu-product-option-group').value;
+  const fieldset = document.querySelector('#combo-option-products');
+  const list = document.querySelector('#combo-option-product-list');
+  const limitInput = document.querySelector('#menu-product-max-options');
+  fieldset.hidden = !groupName;
+  limitInput.disabled = !groupName;
+  const products = adminMenuProducts.filter(product => product.active && product.category === groupName);
+  if (!groupName) {
+    list.innerHTML = '';
+    return;
+  }
+  if (!products.length) {
+    list.innerHTML = '<span class="combo-option-empty">Este grupo ainda não tem produtos ativos.</span>';
+    return;
+  }
+  const selected = selectedIds == null ? new Set(products.map(product => product.id)) : new Set(selectedIds);
+  list.innerHTML = products.map(product => `<label class="combo-option-product"><input type="checkbox" data-combo-product-id="${product.id}" ${selected.has(product.id) ? 'checked' : ''} /><span>${escapeHtml(product.name)}</span></label>`).join('');
 }
 
 async function saveMenuProduct(event) {
@@ -506,7 +603,14 @@ async function saveMenuProduct(event) {
     }
     const category = document.querySelector('#menu-product-category').value;
     if (!image && !['Complementos', 'Acompanhamentos', 'Molhos'].includes(category)) throw new Error('Selecione uma imagem para produtos da vitrine.');
-    const payload = { name: document.querySelector('#menu-product-name').value.trim(), category, description: document.querySelector('#menu-product-description').value.trim(), price: Number(document.querySelector('#menu-product-price').value), image, active: document.querySelector('#menu-product-active').value === 'true' };
+    const optionGroupName = document.querySelector('#menu-product-option-group').value || null;
+    const maxOptionSelections = optionGroupName ? Number(document.querySelector('#menu-product-max-options').value) : 0;
+    const optionProductIds = optionGroupName
+      ? [...document.querySelectorAll('#combo-option-product-list [data-combo-product-id]:checked')].map(input => Number(input.dataset.comboProductId))
+      : [];
+    if (optionGroupName && (!Number.isInteger(maxOptionSelections) || maxOptionSelections < 1 || maxOptionSelections > 4)) throw new Error('Defina de 1 a 4 opções diferentes para o combo.');
+    if (optionGroupName && !optionProductIds.length) throw new Error('Marque pelo menos um produto disponível para este combo.');
+    const payload = { name: document.querySelector('#menu-product-name').value.trim(), category, description: document.querySelector('#menu-product-description').value.trim(), price: Number(document.querySelector('#menu-product-price').value), image, active: document.querySelector('#menu-product-active').value === 'true', optionGroupName, maxOptionSelections, optionProductIds };
     await adminRequest(id ? `/api/admin/menu/products/${encodeURIComponent(id)}` : '/api/admin/menu/products', { method: id ? 'PATCH' : 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload) });
     form.hidden = true;
     await loadAdminMenu();
@@ -676,6 +780,7 @@ document.querySelector('#new-product-button')?.addEventListener('click', () => s
 document.querySelector('#manage-groups-button')?.addEventListener('click', () => { const manager = document.querySelector('#group-manager'); manager.hidden = !manager.hidden; });
 document.querySelector('#group-form')?.addEventListener('submit', saveProductGroup);
 document.querySelector('#group-list')?.addEventListener('click', handleGroupAction);
+document.querySelector('#group-list')?.addEventListener('change', updateGroupVisibility);
 document.querySelector('#group-list')?.addEventListener('dragstart', event => {
   const groupRow = event.target.closest('[data-group-name]');
   if (!groupRow) return;
@@ -714,6 +819,13 @@ document.querySelector('#group-list')?.addEventListener('dragend', event => {
 });
 document.querySelector('#cancel-product')?.addEventListener('click', () => { const menuForm = document.querySelector('#menu-form'); if (menuForm) { menuForm.hidden = true; menuForm.reset(); } });
 document.querySelector('#menu-form')?.addEventListener('submit', saveMenuProduct);
+document.querySelector('#menu-product-option-group')?.addEventListener('change', () => renderComboOptionProducts());
+document.querySelector('#menu-product-category')?.addEventListener('change', () => {
+  const selectedIds = [...document.querySelectorAll('#combo-option-product-list [data-combo-product-id]:checked')].map(input => Number(input.dataset.comboProductId));
+  const selectedGroup = document.querySelector('#menu-product-option-group').value;
+  renderOptionGroupSelect(selectedGroup);
+  renderComboOptionProducts(selectedIds);
+});
 document.querySelector('#menu-product-list')?.addEventListener('click', handleMenuAction);
 document.querySelector('#promotion-list')?.addEventListener('click', handleMenuAction);
 document.querySelector('#remove-product-image')?.addEventListener('click', () => {

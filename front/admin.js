@@ -16,7 +16,6 @@ try {
 const orderStages = [
   { id: 'new', label: 'Pedido realizado' },
   { id: 'preparing', label: 'Pedido em produção' },
-  { id: 'ready', label: 'Pedido pronto' },
   { id: 'out_for_delivery', label: 'Pedido em rota de entrega' },
   { id: 'completed', label: 'Pedido entregue' },
   { id: 'cancelled', label: 'Pedido cancelado' }
@@ -146,13 +145,14 @@ async function loadDashboard() {
 }
 
 function orderCard(order) {
+  const displayStatus = order.status === 'ready' ? 'preparing' : order.status;
   const items = order.items.map(item => `${item.quantity}× ${escapeHtml(item.name)}`).join(', ');
   const date = formatDateTime(order.createdAt);
   const customer = order.customer?.name ? `<p class="kanban-customer">${escapeHtml(order.customer.name)}</p>` : '';
   const address = order.customer?.address ? `<p class="kanban-address">${escapeHtml(order.customer.address)}</p>` : '';
   const phone = order.customer?.phone ? `<p class="kanban-address">Telefone: ${escapeHtml(order.customer.phone)}</p>` : '';
   const reference = order.customer?.reference ? `<p class="kanban-address">Referência: ${escapeHtml(order.customer.reference)}</p>` : '';
-  return `<article class="kanban-card" draggable="true" data-order-id="${escapeHtml(order.orderId)}"><header><strong>Pedido #${escapeHtml(order.orderId.slice(0, 8).toUpperCase())}</strong><span>${date}</span></header>${customer}<p class="kanban-items">${items}</p>${address}${phone}${reference}<div class="kanban-card-footer"><strong>${formatCurrency(order.total)}</strong><select data-kanban-status="${escapeHtml(order.orderId)}" aria-label="Etapa do pedido">${orderStages.map(stage => `<option value="${stage.id}" ${stage.id === order.status ? 'selected' : ''}>${stage.label}</option>`).join('')}</select></div></article>`;
+  return `<article class="kanban-card" draggable="true" data-order-id="${escapeHtml(order.orderId)}"><header><strong>Pedido #${escapeHtml(order.orderId.slice(0, 8).toUpperCase())}</strong><span>${date}</span></header>${customer}<p class="kanban-items">${items}</p>${address}${phone}${reference}<div class="kanban-card-footer"><strong>${formatCurrency(order.total)}</strong><select data-kanban-status="${escapeHtml(order.orderId)}" aria-label="Etapa do pedido">${orderStages.map(stage => `<option value="${stage.id}" ${stage.id === displayStatus ? 'selected' : ''}>${stage.label}</option>`).join('')}</select></div></article>`;
 }
 
 async function loadKanban() {
@@ -161,7 +161,7 @@ async function loadKanban() {
   try {
     const orders = await adminRequest(`/api/admin/orders?period=${kanbanPeriod}`);
     document.querySelector('#orders-kanban').innerHTML = orderStages.map(stage => {
-      const stageOrders = orders.filter(order => (order.status || 'new') === stage.id);
+      const stageOrders = orders.filter(order => (order.status === 'ready' ? 'preparing' : order.status || 'new') === stage.id);
       return `<section class="kanban-column" data-kanban-column="${stage.id}"><header><h3>${stage.label}</h3><span>${stageOrders.length}</span></header><div class="kanban-dropzone" data-drop-status="${stage.id}">${stageOrders.length ? stageOrders.map(orderCard).join('') : '<div class="kanban-empty">Solte pedidos aqui</div>'}</div></section>`;
     }).join('');
   } finally {

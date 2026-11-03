@@ -19,7 +19,7 @@ function buildOrderNotification(status, order, estimate = process.env.WHATSAPP_D
   let parameters;
 
   if (status === 'new') {
-    const items = order.items.map(item => `${item.quantity} x ${item.name}${item.addons?.length ? ` (${item.addons.join(', ')})` : ''}\n  Produto: ${formatCurrency(item.unitPrice)}\n  Subtotal: ${formatCurrency(item.total)}`).join('\n\n').slice(0, 1000);
+    const items = order.items.map(item => `${item.quantity} x ${item.name}${item.options?.length ? ` (Escolhas: ${item.options.join(', ')})` : ''}${item.addons?.length ? ` (Adicionais: ${item.addons.join(', ')})` : ''}\n  Produto: ${formatCurrency(item.unitPrice)}\n  Subtotal: ${formatCurrency(item.total)}`).join('\n\n').slice(0, 1000);
     const createdAt = new Date(order.createdAt).toLocaleString('pt-BR', { dateStyle: 'short', timeStyle: 'short', timeZone: 'America/Sao_Paulo' });
     parameters = [orderCode, createdAt, order.customer.name, order.customer.phone, order.customer.address, items, formatCurrency(order.subtotal), formatCurrency(order.deliveryFee), formatCurrency(order.total), order.payment.method === 'cash' ? 'Dinheiro na entrega' : 'Cartão ou PIX pelo Mercado Pago', estimate].map(textParameter);
   } else if (status === 'preparing') {
@@ -53,7 +53,10 @@ async function sendOrderNotification(status, order) {
   try {
     const response = await fetch(`https://graph.facebook.com/${apiVersion}/${encodeURIComponent(phoneNumberId)}/messages`, {
       method: 'POST',
-      headers: { Authorization: `Bearer ${accessToken}`, 'Content-Type': 'application/json' },
+      headers: {
+        Authorization: `Bearer ${accessToken}`,
+        'Content-Type': 'application/json'
+      },
       body: JSON.stringify({
         messaging_product: 'whatsapp',
         to: formatPhone(order.customer.phone),
@@ -67,8 +70,24 @@ async function sendOrderNotification(status, order) {
       signal: AbortSignal.timeout(10000)
     });
     if (!response.ok) {
-      const details = await response.text().catch(() => '');
-      console.error(`Falha no envio WhatsApp (HTTP ${response.status}): ${details.slice(0, 500)}`);
+      const body = await response.json().catch(() => null);
+      const providerError = body?.error;
+      if (providerError) {
+        const detail = [
+          providerError.type,
+          providerError.code && `código ${providerError.code}`,
+          providerError.error_subcode && `subcódigo ${providerError.error_subcode}`,
+          providerError.message
+        ].filter(Boolean).join(' — ');
+        const safeDetail = detail
+          .replaceAll(accessToken, '[token ocultado]')
+          .replaceAll(phoneNumberId, '[ID do número ocultado]')
+          .replaceAll(formatPhone(order.customer.phone), '[telefone ocultado]')
+          .slice(0, 500);
+        console.error(`Falha no envio WhatsApp (HTTP ${response.status}): ${safeDetail}`);
+      } else {
+        console.error(`Falha no envio WhatsApp (HTTP ${response.status}); a Meta não retornou detalhes legíveis.`);
+      }
       return { sent: false, reason: 'provider_error' };
     }
     return { sent: true };
@@ -78,4 +97,4 @@ async function sendOrderNotification(status, order) {
   }
 }
 
-module.exports = { buildOrderNotification, sendOrderNotification };
+module.exports = { buildOrderNotification, formatPhone, sendOrderNotification };

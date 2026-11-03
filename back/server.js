@@ -293,6 +293,10 @@ adminApi.post('/menu/groups', asyncRoute(async (request, response) => {
   const result = await adminStore.createProductGroup(request.body?.name);
   return result.error ? response.status(400).json({ error: result.error }) : response.status(201).json({ name: result.data });
 }));
+adminApi.patch('/menu/groups/:name', asyncRoute(async (request, response) => {
+  const result = await adminStore.updateProductGroup(request.params.name, request.body);
+  return result.error ? response.status(result.status || 400).json({ error: result.error }) : response.json(result.data);
+}));
 adminApi.delete('/menu/groups/:name', asyncRoute(async (request, response) => {
   const result = await adminStore.deleteProductGroup(request.params.name);
   return result.error ? response.status(result.status || 400).json({ error: result.error }) : response.status(204).end();

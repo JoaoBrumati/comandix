@@ -74,16 +74,22 @@ model Product {
   rating      String      @default("5.0") @db.VarChar(10)
   tag         String      @default("Do cardápio") @db.VarChar(40)
   active      Boolean     @default(true)
+  optionGroupName String? @db.VarChar(50)
+  maxOptionSelections Int @default(0)
+  optionProductIds Int[] @default([])
   promotions  Promotion[]
   productGroup ProductGroup @relation(fields: [category], references: [name], onDelete: Restrict, onUpdate: Cascade)
+  optionGroup ProductGroup? @relation("ProductOptionsGroup", fields: [optionGroupName], references: [name], onDelete: SetNull, onUpdate: Cascade)
 
   @@index([active, category])
 }
 
 model ProductGroup {
-  id       Int       @id @default(autoincrement())
-  name     String    @unique @db.VarChar(50)
-  products Product[]
+  id                   Int       @id @default(autoincrement())
+  name                 String    @unique @db.VarChar(50)
+  visibleInStorefront  Boolean   @default(true)
+  products             Product[]
+  optionProducts       Product[] @relation("ProductOptionsGroup")
 }
 
 model Promotion {
@@ -123,6 +129,7 @@ model OrderItem {
   name      String   @db.VarChar(100)
   quantity  Int
   addons    String[]
+  options   String[] @default([])
   unitPrice Decimal  @db.Decimal(10, 2)
   total     Decimal  @db.Decimal(10, 2)
   order     Order    @relation(fields: [orderId], references: [id], onDelete: Cascade)

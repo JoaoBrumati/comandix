@@ -9,6 +9,11 @@ function ProductDialog() {
           <h2 id="detail-name" />
           <p id="detail-description" />
           <strong className="detail-price" id="detail-price" />
+          <div className="option-group combo-choice-group" id="combo-choice-group" hidden>
+            <div className="option-heading"><strong id="combo-choice-heading">Escolha seus salgados</strong></div>
+            <p className="combo-choice-help" id="combo-choice-help" />
+            <div className="combo-choice-list" id="combo-choice-list" />
+          </div>
           <div className="option-group">
             <div className="option-heading"><strong>Bebidas</strong></div>
             <div className="option-list" id="drink-options" />

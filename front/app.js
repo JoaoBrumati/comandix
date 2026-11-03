@@ -6,7 +6,6 @@ let cart = [];
 const orderStatusFlow = [
   { id: 'new', label: 'Pedido realizado' },
   { id: 'preparing', label: 'Pedido em produção' },
-  { id: 'ready', label: 'Pedido pronto' },
   { id: 'out_for_delivery', label: 'Pedido em rota de entrega' },
   { id: 'completed', label: 'Pedido entregue' }
 ];
@@ -134,11 +133,12 @@ function addConfiguredProduct() {
   showToast('Pedido adicionado!');
 }
 function renderOrderTracking(order) {
+  const displayStatus = order.status === 'ready' ? 'preparing' : order.status;
   const orderCode = order.orderCode || order.orderId?.slice(0, 8).toUpperCase();
-  const activeStatusIndex = orderStatusFlow.findIndex(stage => stage.id === order.status);
+  const activeStatusIndex = orderStatusFlow.findIndex(stage => stage.id === displayStatus);
   const timeline = orderStatusFlow.map((stage, index) => {
-    const isDone = index < activeStatusIndex || (order.status === 'completed' && index === orderStatusFlow.length - 1);
-    const isCurrent = stage.id === order.status;
+    const isDone = index < activeStatusIndex || (displayStatus === 'completed' && index === orderStatusFlow.length - 1);
+    const isCurrent = stage.id === displayStatus;
     const stateClass = isDone ? 'done' : isCurrent ? 'current' : '';
     const label = index < activeStatusIndex ? 'Concluído' : isCurrent ? 'Em andamento' : 'Próximo';
     return `<div class="tracking-step ${stateClass}"><span class="tracking-dot"></span><div><strong>${stage.label}</strong><small>${label}</small></div></div>`;
@@ -146,13 +146,13 @@ function renderOrderTracking(order) {
   const items = order.items?.map(item => `${item.quantity}× ${item.name}${item.addons?.length ? ` (${item.addons.join(', ')})` : ''}`).join('<br>') || '';
   const total = money(Number(order.total || 0));
   const paymentStatuses = { pending: 'Aguardando pagamento', approved: 'Pago', authorized: 'Autorizado', in_process: 'Em processamento', in_mediation: 'Em análise', rejected: 'Recusado', cancelled: 'Cancelado', refunded: 'Reembolsado', charged_back: 'Contestado' };
-  const statusMessage = order.status === 'cancelled' ? '<p class="lookup-feedback">Este pedido foi cancelado.</p>' : '';
+  const statusMessage = displayStatus === 'cancelled' ? '<p class="lookup-feedback">Este pedido foi cancelado.</p>' : '';
   document.querySelector('#order-tracking').innerHTML = `
     <div class="tracking-summary"><div><span>Pedido</span><strong>#${orderCode}</strong></div><div><span>Valor total</span><strong>${total}</strong></div></div>
     <div class="tracking-summary"><div><span>Pagamento</span><strong>${escapeText(paymentStatuses[order.payment?.status] || 'Aguardando confirmação')}</strong></div></div>
     ${timeline}
     ${statusMessage}
-    <div class="tracking-summary"><div><span>Itens</span><strong>${escapeText(order.items?.length ? order.items.length : 0)} itens</strong></div><div><span>Atualização</span><strong>${orderStatusLabels[order.status] || 'Pedido em análise'}</strong></div></div>
+    <div class="tracking-summary"><div><span>Itens</span><strong>${escapeText(order.items?.length ? order.items.length : 0)} itens</strong></div><div><span>Atualização</span><strong>${orderStatusLabels[displayStatus] || 'Pedido em análise'}</strong></div></div>
     <div class="tracking-summary"><div><span>Resumo</span><strong>${items || 'Nenhum item informado'}</strong></div></div>
   `;
 }

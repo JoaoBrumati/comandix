@@ -7,7 +7,6 @@ let cart = loadStoredCart();
 const orderStatusFlow = [
   { id: 'new', label: 'Pedido realizado' },
   { id: 'preparing', label: 'Pedido em produção' },
-  { id: 'ready', label: 'Pedido pronto' },
   { id: 'out_for_delivery', label: 'Pedido em rota de entrega' },
   { id: 'completed', label: 'Pedido entregue' }
 ];
@@ -49,7 +48,12 @@ function loadStoredCart() {
       && Number.isInteger(item.quantity)
       && item.quantity > 0
       && item.quantity <= 99
-    ).map(item => ({ ...item, addons: Array.isArray(item.addons) ? item.addons.filter(addon => typeof addon === 'string') : [] }));
+    ).map(item => ({
+      ...item,
+      addons: Array.isArray(item.addons) ? item.addons.filter(addon => typeof addon === 'string') : [],
+      options: Array.isArray(item.options) ? item.options.filter(option => typeof option === 'string') : [],
+      optionIds: Array.isArray(item.optionIds) ? item.optionIds.filter(id => Number.isInteger(id) && id > 0) : []
+    }));
   } catch (error) {
     console.error('Não foi possível restaurar o carrinho salvo.', error);
     return [];
@@ -123,6 +127,26 @@ function renderAddonOptions(elementId, options, type) {
       <small>+ ${money(option.price)}</small>
     </div>`).join('');
 }
+function renderComboChoices(product) {
+  const group = document.querySelector('#combo-choice-group');
+  const list = document.querySelector('#combo-choice-list');
+  const optionGroup = product.optionGroup;
+  group.hidden = !optionGroup;
+  if (!optionGroup) {
+    list.innerHTML = '';
+    return;
+  }
+  document.querySelector('#combo-choice-heading').textContent = optionGroup.name;
+  document.querySelector('#combo-choice-help').textContent = `Escolha até ${optionGroup.maxSelections} opções diferentes, incluídas no preço.`;
+  list.innerHTML = optionGroup.products.length
+    ? optionGroup.products.map(option => `
+      <label class="combo-choice-item">
+        <input type="checkbox" data-combo-option="${option.id}" data-option-name="${escapeText(option.name)}" />
+        ${option.image ? `<img src="${escapeText(foodImage(option))}" alt="" />` : ''}
+        <span>${escapeText(option.name)}</span>
+      </label>`).join('')
+    : '<p class="combo-choice-empty">Não há produtos ativos neste grupo.</p>';
+}
 function getDetailTotal() {
   const quantityExtras = [...document.querySelectorAll('.product-detail [data-addon-price]')].reduce((sum, input) => sum + Number(input.dataset.addonPrice || 0) * Number(input.value || 0), 0);
   const legacyExtras = [...document.querySelectorAll('.product-detail input[type="checkbox"]:checked')].reduce((sum, input) => sum + Number(input.dataset.price || 0), 0);
@@ -134,6 +158,7 @@ function updateDetailTotal() {
 }
 function openProduct(id) {
   detailProduct = foods.find(food => food.id === id);
+  if (!detailProduct) return;
   detailQuantity = 1;
   document.querySelector('#detail-image').src = foodImage(detailProduct);
   document.querySelector('#detail-image').alt = detailProduct.name;
@@ -142,6 +167,7 @@ function openProduct(id) {
   document.querySelector('#detail-name').textContent = detailProduct.name;
   document.querySelector('#detail-description').textContent = `${detailProduct.description} Tudo preparado na hora, com ingredientes selecionados e muito sabor em cada mordida.`;
   document.querySelector('#detail-price').innerHTML = detailProduct.promotionPercentage ? `<s>${money(detailProduct.originalPrice)}</s> ${money(detailProduct.price)}` : money(detailProduct.price);
+  renderComboChoices(detailProduct);
   renderAddonOptions('drink-options', addonGroups.drinks, 'drink');
   renderAddonOptions('side-options', addonGroups.sides, 'side');
   renderAddonOptions('sauce-options', addonGroups.sauces, 'sauce');
@@ -162,33 +188,41 @@ function addConfiguredProduct() {
     const name = decodeURIComponent(input.dataset.addonName || '');
     for (let index = 0; index < quantity; index += 1) addons.push(name);
   }
-  const legacyAddons = [...document.querySelectorAll('.product-detail input[type="checkbox"]:checked')].map(input => input.value);
+  const legacyAddons = [...document.querySelectorAll('.product-detail input[type="checkbox"]:checked:not([data-combo-option])')].map(input => input.value);
+  const selectedOptions = [...document.querySelectorAll('.product-detail [data-combo-option]:checked')];
+  if (selectedOptions.length > (detailProduct.maxOptionSelections || 0)) {
+    showToast(`Escolha até ${detailProduct.maxOptionSelections} opções diferentes.`);
+    return;
+  }
+  const optionIds = selectedOptions.map(input => Number(input.dataset.comboOption));
+  const options = selectedOptions.map(input => input.dataset.optionName);
   const unitPrice = getDetailTotal() / detailQuantity;
-  cart.push({ ...detailProduct, id: Date.now(), originalId: detailProduct.id, price: unitPrice, quantity: detailQuantity, addons: [...addons, ...legacyAddons] });
+  cart.push({ ...detailProduct, id: Date.now(), originalId: detailProduct.id, price: unitPrice, quantity: detailQuantity, addons: [...addons, ...legacyAddons], options, optionIds });
   renderCart();
   closeProduct();
   showToast('Pedido adicionado!');
 }
 function renderOrderTracking(order) {
+  const displayStatus = order.status === 'ready' ? 'preparing' : order.status;
   const orderCode = order.orderCode || order.orderId?.slice(0, 8).toUpperCase();
-  const activeStatusIndex = orderStatusFlow.findIndex(stage => stage.id === order.status);
+  const activeStatusIndex = orderStatusFlow.findIndex(stage => stage.id === displayStatus);
   const timeline = orderStatusFlow.map((stage, index) => {
-    const isDone = index < activeStatusIndex || (order.status === 'completed' && index === orderStatusFlow.length - 1);
-    const isCurrent = stage.id === order.status;
+    const isDone = index < activeStatusIndex || (displayStatus === 'completed' && index === orderStatusFlow.length - 1);
+    const isCurrent = stage.id === displayStatus;
     const stateClass = isDone ? 'done' : isCurrent ? 'current' : '';
     const label = index < activeStatusIndex ? 'Concluído' : isCurrent ? 'Em andamento' : 'Próximo';
     return `<div class="tracking-step ${stateClass}"><span class="tracking-dot"></span><div><strong>${stage.label}</strong><small>${label}</small></div></div>`;
   }).join('');
-  const items = order.items?.map(item => `${item.quantity}× ${item.name}${item.addons?.length ? ` (${item.addons.join(', ')})` : ''}`).join('<br>') || '';
+  const items = order.items?.map(item => `${item.quantity}× ${escapeText(item.name)}${item.options?.length ? ` (Escolhas: ${escapeText(item.options.join(', '))})` : ''}${item.addons?.length ? ` (Adicionais: ${escapeText(item.addons.join(', '))})` : ''}`).join('<br>') || '';
   const total = money(Number(order.total || 0));
   const paymentStatuses = { pending: 'Aguardando pagamento', approved: 'Pago', authorized: 'Autorizado', in_process: 'Em processamento', in_mediation: 'Em análise', rejected: 'Recusado', cancelled: 'Cancelado', refunded: 'Reembolsado', charged_back: 'Contestado' };
-  const statusMessage = order.status === 'cancelled' ? '<p class="lookup-feedback">Este pedido foi cancelado.</p>' : '';
+  const statusMessage = displayStatus === 'cancelled' ? '<p class="lookup-feedback">Este pedido foi cancelado.</p>' : '';
   document.querySelector('#order-tracking').innerHTML = `
     <div class="tracking-summary"><div><span>Pedido</span><strong>#${orderCode}</strong></div><div><span>Valor total</span><strong>${total}</strong></div></div>
     <div class="tracking-summary"><div><span>Pagamento</span><strong>${escapeText(paymentStatuses[order.payment?.status] || 'Aguardando confirmação')}</strong></div></div>
     ${timeline}
     ${statusMessage}
-    <div class="tracking-summary"><div><span>Itens</span><strong>${escapeText(order.items?.length ? order.items.length : 0)} itens</strong></div><div><span>Atualização</span><strong>${orderStatusLabels[order.status] || 'Pedido em análise'}</strong></div></div>
+    <div class="tracking-summary"><div><span>Itens</span><strong>${escapeText(order.items?.length ? order.items.length : 0)} itens</strong></div><div><span>Atualização</span><strong>${orderStatusLabels[displayStatus] || 'Pedido em análise'}</strong></div></div>
     <div class="tracking-summary"><div><span>Resumo</span><strong>${items || 'Nenhum item informado'}</strong></div></div>
   `;
 }
@@ -263,7 +297,8 @@ function renderCart() {
   if (!cart.length) { cartItems.innerHTML = '<div class="empty">Seu carrinho está esperando por um pedido gostoso.</div>'; } else {
     cartItems.innerHTML = cart.map(item => {
       const addons = formatAddonSummary(item.addons);
-      return `<article class="cart-row"><img src="${foodImage(item)}" alt="${escapeText(item.name)}" /><div class="cart-detail"><h3>${escapeText(item.name)}</h3><p>${money(item.price)} cada${addons ? `<br><strong>Adicionais:</strong> ${escapeText(addons)}` : ''}</p></div><div class="qty"><button data-decrease="${item.id}" aria-label="Diminuir quantidade">−</button><span>${item.quantity}</span><button data-increase="${item.id}" aria-label="Aumentar quantidade">+</button></div><strong>${money(item.price * item.quantity)}</strong><button class="remove" data-remove="${item.id}" aria-label="Remover ${escapeText(item.name)}">×</button></article>`;
+      const options = item.options?.join(', ') || '';
+      return `<article class="cart-row"><img src="${foodImage(item)}" alt="${escapeText(item.name)}" /><div class="cart-detail"><h3>${escapeText(item.name)}</h3><p>${money(item.price)} cada${options ? `<br><strong>Escolhas:</strong> ${escapeText(options)}` : ''}${addons ? `<br><strong>Adicionais:</strong> ${escapeText(addons)}` : ''}</p></div><div class="qty"><button data-decrease="${item.id}" aria-label="Diminuir quantidade">−</button><span>${item.quantity}</span><button data-increase="${item.id}" aria-label="Aumentar quantidade">+</button></div><strong>${money(item.price * item.quantity)}</strong><button class="remove" data-remove="${item.id}" aria-label="Remover ${escapeText(item.name)}">×</button></article>`;
     }).join('');
   }
   const subtotal = cart.reduce((sum, item) => sum + item.price * item.quantity, 0);
@@ -402,7 +437,7 @@ function closePayment() {
   document.querySelector('#payment-overlay').setAttribute('aria-hidden', 'true');
 }
 function paymentPayload(method) {
-  const payload = { customer: { name: document.querySelector('#customer-name').value.trim(), phone: normalizeBrazilianPhone(document.querySelector('#customer-phone').value), whatsappOptIn: document.querySelector('#whatsapp-opt-in').checked, cep: document.querySelector('#delivery-cep').value.replace(/\D/g, ''), street: document.querySelector('#delivery-street').value.trim(), number: document.querySelector('#delivery-number').value.trim(), neighborhood: document.querySelector('#delivery-neighborhood').value.trim(), city: document.querySelector('#delivery-city').value.trim(), state: document.querySelector('#delivery-state').value.trim().toUpperCase(), residenceType: document.querySelector('[name="residence-type"]:checked').value, complement: document.querySelector('#delivery-complement').value.trim(), reference: document.querySelector('#delivery-reference').value.trim() }, items: cart.map(item => ({ productId: item.originalId || item.id, quantity: item.quantity, addons: item.addons || [] })) };
+  const payload = { customer: { name: document.querySelector('#customer-name').value.trim(), phone: normalizeBrazilianPhone(document.querySelector('#customer-phone').value), whatsappOptIn: document.querySelector('#whatsapp-opt-in').checked, cep: document.querySelector('#delivery-cep').value.replace(/\D/g, ''), street: document.querySelector('#delivery-street').value.trim(), number: document.querySelector('#delivery-number').value.trim(), neighborhood: document.querySelector('#delivery-neighborhood').value.trim(), city: document.querySelector('#delivery-city').value.trim(), state: document.querySelector('#delivery-state').value.trim().toUpperCase(), residenceType: document.querySelector('[name="residence-type"]:checked').value, complement: document.querySelector('#delivery-complement').value.trim(), reference: document.querySelector('#delivery-reference').value.trim() }, items: cart.map(item => ({ productId: item.originalId || item.id, quantity: item.quantity, addons: item.addons || [], options: item.optionIds || [] })) };
   if (method === 'mercadopago') payload.payment = { method: 'mercadopago' };
   if (method === 'cash') payload.payment = { method: 'cash', changeFor: Number((document.querySelector('#cash-change').value || '').replace(',', '.')) || undefined };
   return payload;
@@ -449,7 +484,7 @@ async function confirmPayment() {
   }
 }
 function showToast(message) { const toast = document.querySelector('#toast'); toast.textContent = message; toast.classList.add('show'); setTimeout(() => toast.classList.remove('show'), 2200); }
-function addToCart(id) { const food = foods.find(item => item.id === id); const existing = cart.find(item => item.id === id); existing ? existing.quantity++ : cart.push({ ...food, quantity: 1 }); renderCart(); showToast('Pedido adicionado!'); }
+function addToCart(id) { const food = foods.find(item => item.id === id); if (!food) return; if (food.optionGroup) { openProduct(id); return; } const existing = cart.find(item => item.id === id); existing ? existing.quantity++ : cart.push({ ...food, quantity: 1 }); renderCart(); showToast('Pedido adicionado!'); }
 
 async function loadStorefrontCatalog() {
   try {
@@ -523,6 +558,16 @@ document.querySelector('#product-overlay').addEventListener('input', event => {
   const value = Number(event.target.value || 0);
   event.target.value = Math.min(99, Math.max(0, Number.isFinite(value) ? value : 0));
   updateDetailTotal();
+});
+document.querySelector('#product-overlay').addEventListener('change', event => {
+  const checkbox = event.target.closest('[data-combo-option]');
+  if (!checkbox?.checked) return;
+  const maxSelections = detailProduct?.maxOptionSelections || 0;
+  const selected = document.querySelectorAll('.product-detail [data-combo-option]:checked').length;
+  if (selected > maxSelections) {
+    checkbox.checked = false;
+    showToast(`Escolha até ${maxSelections} opções diferentes.`);
+  }
 });
 document.querySelector('#product-overlay').addEventListener('click', event => {
   const button = event.target.closest('[data-addon-change]');

@@ -28,7 +28,7 @@ function buildPreferencePayload({ orderId, items, deliveryFee, baseUrl }) {
   const preferenceItems = items.map(item => ({
     id: String(item.productId),
     title: item.name.slice(0, 200),
-    description: item.addons?.length ? `Adicionais: ${item.addons.join(', ')}`.slice(0, 250) : undefined,
+    description: [item.options?.length ? `Escolhas: ${item.options.join(', ')}` : '', item.addons?.length ? `Adicionais: ${item.addons.join(', ')}` : ''].filter(Boolean).join(' · ').slice(0, 250) || undefined,
     quantity: item.quantity,
     unit_price: Number(item.unitPrice.toFixed(2)),
     currency_id: 'BRL'
