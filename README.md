@@ -43,7 +43,7 @@ Cadastre na Vercel, sem adicionar segredos ao Git:
 - `PUBLIC_BASE_URL` com a URL HTTPS pública do site.
 - `CLIENT_ORIGIN` com a mesma origem pública do site, por exemplo `https://loja.exemplo.com`.
 
-Use a URL pública de cada ambiente em `PUBLIC_BASE_URL` e `CLIENT_ORIGIN`. O painel e a loja dependem do PostgreSQL configurado e acessível pela função. A Vercel usa instâncias serverless: sessões administrativas mantidas em memória e imagens novas gravadas no disco local não são persistentes entre instâncias/deploys. Para operar essas funções em produção, sessões e uploads precisam usar armazenamento compartilhado/persistente.
+Use a URL pública de cada ambiente em `PUBLIC_BASE_URL` e `CLIENT_ORIGIN`. O painel e a loja dependem do PostgreSQL configurado e acessível pela função. As sessões administrativas são persistidas no PostgreSQL e o token de sessão é armazenado como hash para funcionar entre instâncias serverless. Antes de publicar esta alteração, aplique a nova migration com `npm run db:deploy` usando as variáveis do banco de produção. Imagens novas continuam sendo gravadas no disco local da função e precisam de armazenamento compartilhado para persistir entre instâncias/deploys.
 
 ## Pagamento
 

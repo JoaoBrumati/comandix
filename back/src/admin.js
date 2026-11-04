@@ -4,6 +4,7 @@ const path = require('path');
 const { z } = require('zod');
 const prisma = require('./db');
 const { decryptBuffer, decryptJson, encryptBuffer, encryptJson, hashCpf } = require('./encryption');
+const sessionTokenHash = token => crypto.createHash('sha256').update(token).digest('hex');
 
 const employeeSchema = z.object({
   name: z.string().trim().min(5).max(100),
@@ -126,6 +127,33 @@ async function lookupOrders(reference = '') {
 async function initializeAdminStore() {
   hashCpf('database-encryption-key-check');
   await prisma.$connect();
+}
+
+async function createAdminSession(token, csrfToken, expiresAt) {
+  return prisma.adminSession.create({
+    data: {
+      tokenHash: sessionTokenHash(token),
+      csrfToken,
+      expiresAt
+    }
+  });
+}
+
+async function getAdminSession(token) {
+  if (!token) return null;
+  const tokenHash = sessionTokenHash(token);
+  const session = await prisma.adminSession.findUnique({ where: { tokenHash } });
+  if (!session) return null;
+  if (session.expiresAt <= new Date()) {
+    await prisma.adminSession.deleteMany({ where: { tokenHash, expiresAt: { lte: new Date() } } });
+    return null;
+  }
+  return session;
+}
+
+async function deleteAdminSession(token) {
+  if (!token) return;
+  await prisma.adminSession.deleteMany({ where: { tokenHash: sessionTokenHash(token) } });
 }
 
 function validateEmployee(payload) {
@@ -561,4 +589,4 @@ async function getDashboard(period = 'daily') {
   };
 }
 
-module.exports = { addDocument, addEmployee, addTimeEntry, calculateOrderItems, createProductGroup, deleteEmployee, deleteProduct, deleteProductGroup, deletePromotion, getAddonPrice, getAddons, getCatalogProduct, getDashboard, getDocument, getEmployee, getMenuSettings, initializeAdminStore, listActivePromotions, listEmployees, listOrders, listProducts, lookupOrders, recordOrder, saveProduct, savePromotion, scheduleVacation, updateEmployee, updateOrderPayment, updateOrderStatus, updateProductGroup };
+module.exports = { addDocument, addEmployee, addTimeEntry, calculateOrderItems, createAdminSession, createProductGroup, deleteAdminSession, deleteEmployee, deleteProduct, deleteProductGroup, deletePromotion, getAdminSession, getAddonPrice, getAddons, getCatalogProduct, getDashboard, getDocument, getEmployee, getMenuSettings, initializeAdminStore, listActivePromotions, listEmployees, listOrders, listProducts, lookupOrders, recordOrder, saveProduct, savePromotion, scheduleVacation, updateEmployee, updateOrderPayment, updateOrderStatus, updateProductGroup };

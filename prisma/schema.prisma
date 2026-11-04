@@ -64,6 +64,15 @@ model MedicalDocument {
   @@index([employeeId, uploadedAt])
 }
 
+model AdminSession {
+  tokenHash String   @id @db.Char(64)
+  csrfToken String   @db.Char(64)
+  expiresAt DateTime
+  createdAt DateTime @default(now())
+
+  @@index([expiresAt])
+}
+
 model Product {
   id          Int         @id @default(autoincrement())
   name        String      @db.VarChar(100)

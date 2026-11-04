@@ -28,7 +28,6 @@ const clientOrigin = process.env.CLIENT_ORIGIN || 'http://localhost:5173';
 const buildDir = path.join(__dirname, '..', 'dist');
 const imageDir = path.join(__dirname, '..', 'img');
 const menuImageDir = path.join(imageDir, 'menu');
-const adminSessions = new Map();
 const sessionDuration = 8 * 60 * 60 * 1000;
 let databaseReady = false;
 let databaseFailure = null;
@@ -139,17 +138,15 @@ app.get('/api/public-config', (_request, response) => response.json({ whatsapp: 
 app.get('/api/catalog', asyncRoute(async (_request, response) => response.json({ products: await adminStore.listProducts(), addons: await adminStore.getAddons() })));
 app.get('/api/promotion', asyncRoute(async (_request, response) => response.json(await adminStore.listActivePromotions())));
 
-function requireAdmin(request, response, next) {
+async function requireAdmin(request, response, next) {
   const sessionToken = cookieValue(request, 'comandix_admin');
-  const session = adminSessions.get(sessionToken);
-  if (!session || session.expiresAt < Date.now()) {
-    adminSessions.delete(sessionToken);
-    return response.status(401).json({ error: 'Acesso administrativo necessário.' });
-  }
+  const session = await adminStore.getAdminSession(sessionToken);
+  if (!session) return response.status(401).json({ error: 'Acesso administrativo necessário.' });
   const clientIp = getClientIp(request);
   if (!isAllowedAdminIp(clientIp, process.env.ADMIN_ALLOWED_IPS)) {
     return response.status(403).json({ error: 'IP não autorizado para o painel administrativo.' });
   }
+  request.adminSession = session;
   next();
 }
 
@@ -158,10 +155,9 @@ function requireSameOrigin(request, response, next) {
   next();
 }
 
-function requireCsrf(request, response, next) {
+async function requireCsrf(request, response, next) {
   if (!['POST', 'PUT', 'PATCH', 'DELETE'].includes(request.method)) return next();
-  const sessionToken = cookieValue(request, 'comandix_admin');
-  const session = adminSessions.get(sessionToken);
+  const session = request.adminSession;
   const expectedToken = session?.csrfToken || '';
   const tokenFromHeader = request.get('x-csrf-token') || request.get('x-xsrf-token');
   const tokenFromCookie = cookieValue(request, 'comandix_csrf');
@@ -208,33 +204,31 @@ app.post('/api/admin/login', requireSameOrigin, adminLoginLimiter, asyncRoute(as
   try { await adminStore.initializeAdminStore(); } catch { return response.status(503).json({ error: 'Não foi possível abrir o PostgreSQL. Confira DATABASE_URL e as migrations.' }); }
   const sessionToken = crypto.randomBytes(32).toString('base64url');
   const csrfToken = generateCsrfToken();
-  adminSessions.set(sessionToken, { expiresAt: Date.now() + sessionDuration, csrfToken });
+  await adminStore.createAdminSession(sessionToken, csrfToken, new Date(Date.now() + sessionDuration));
   response.setHeader('Set-Cookie', [buildAdminCookie(sessionToken), buildCsrfCookie(csrfToken)]);
   logAdminAuditEvent('admin_login_success', request, { username, has2fa: Boolean(secret) });
   return response.json({ authenticated: true, csrfToken, requiresTwoFactor: Boolean(secret) });
 }));
 
-app.get('/api/admin/session', requireAdmin, (request, response) => {
-  const sessionToken = cookieValue(request, 'comandix_admin');
-  const session = adminSessions.get(sessionToken);
-  return response.json({ authenticated: true, csrfToken: session?.csrfToken || '' });
+app.get('/api/admin/session', asyncRoute(requireAdmin), (request, response) => {
+  return response.json({ authenticated: true, csrfToken: request.adminSession.csrfToken });
 });
-app.delete('/api/admin/session', requireSameOrigin, (request, response) => {
+app.delete('/api/admin/session', requireSameOrigin, asyncRoute(async (request, response) => {
   const clientIp = getClientIp(request);
-  adminSessions.delete(cookieValue(request, 'comandix_admin'));
+  await adminStore.deleteAdminSession(cookieValue(request, 'comandix_admin'));
   logAdminAuditEvent('admin_logout', request, { ip: clientIp });
   response.setHeader('Set-Cookie', [clearAdminCookie(), clearCsrfCookie()]);
   return response.status(204).end();
-});
+}));
 
 const adminApi = express.Router();
-adminApi.use(requireAdmin);
+adminApi.use(asyncRoute(requireAdmin));
 adminApi.use(requireSameOrigin);
 adminApi.use((request, _response, next) => {
   logAdminAuditEvent('admin_api_call', request, { path: request.originalUrl });
   next();
 });
-adminApi.use(requireCsrf);
+adminApi.use(asyncRoute(requireCsrf));
 adminApi.get('/security/logs', (_request, response) => response.json({ logs: findRecentAuditLogs(25) }));
 adminApi.get('/dashboard', asyncRoute(async (request, response) => response.json(await adminStore.getDashboard(request.query.period))));
 adminApi.get('/orders', asyncRoute(async (request, response) => response.json(await adminStore.listOrders(request.query.period))));

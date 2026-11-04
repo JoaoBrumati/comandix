@@ -110,3 +110,73 @@ test('prevents renaming reserved add-on groups', async () => {
   const result = await adminStore.updateProductGroup('Molhos', { name: 'Molhos da casa' });
   assert.match(result.error, /reservado/);
 });
+
+test('stores hashed admin session tokens and persists their expiration and CSRF token', async t => {
+  const originalCreate = prisma.adminSession.create;
+  const token = 'session-token-for-testing';
+  const csrfToken = 'a'.repeat(64);
+  const expiresAt = new Date(Date.now() + 60_000);
+  let createArgs;
+  prisma.adminSession.create = async args => {
+    createArgs = args;
+    return args.data;
+  };
+  t.after(() => {
+    prisma.adminSession.create = originalCreate;
+  });
+
+  const session = await adminStore.createAdminSession(token, csrfToken, expiresAt);
+
+  assert.notEqual(createArgs.data.tokenHash, token);
+  assert.match(createArgs.data.tokenHash, /^[a-f0-9]{64}$/);
+  assert.equal(createArgs.data.csrfToken, csrfToken);
+  assert.equal(createArgs.data.expiresAt, expiresAt);
+  assert.deepEqual(session, createArgs.data);
+});
+
+test('loads persistent admin sessions by token hash and deletes expired sessions', async t => {
+  const originalFindUnique = prisma.adminSession.findUnique;
+  const originalDeleteMany = prisma.adminSession.deleteMany;
+  const token = 'session-token-for-testing';
+  const expectedHash = require('node:crypto').createHash('sha256').update(token).digest('hex');
+  const expiredAt = new Date(Date.now() - 1);
+  let findArgs;
+  let deleteArgs;
+  prisma.adminSession.findUnique = async args => {
+    findArgs = args;
+    return { tokenHash: expectedHash, csrfToken: 'b'.repeat(64), expiresAt: expiredAt };
+  };
+  prisma.adminSession.deleteMany = async args => {
+    deleteArgs = args;
+    return { count: 1 };
+  };
+  t.after(() => {
+    prisma.adminSession.findUnique = originalFindUnique;
+    prisma.adminSession.deleteMany = originalDeleteMany;
+  });
+
+  assert.equal(await adminStore.getAdminSession(token), null);
+  assert.deepEqual(findArgs, { where: { tokenHash: expectedHash } });
+  assert.deepEqual(deleteArgs.where.tokenHash, expectedHash);
+  assert.ok(deleteArgs.where.expiresAt.lte instanceof Date);
+  assert.deepEqual(await adminStore.getAdminSession(''), null);
+});
+
+test('deletes persistent admin sessions without storing or querying the raw token', async t => {
+  const originalDeleteMany = prisma.adminSession.deleteMany;
+  const token = 'session-token-for-testing';
+  const expectedHash = require('node:crypto').createHash('sha256').update(token).digest('hex');
+  let deleteArgs;
+  prisma.adminSession.deleteMany = async args => {
+    deleteArgs = args;
+    return { count: 1 };
+  };
+  t.after(() => {
+    prisma.adminSession.deleteMany = originalDeleteMany;
+  });
+
+  await adminStore.deleteAdminSession(token);
+
+  assert.deepEqual(deleteArgs, { where: { tokenHash: expectedHash } });
+  assert.equal(await adminStore.deleteAdminSession(''), undefined);
+});
