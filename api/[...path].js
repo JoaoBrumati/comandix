@@ -1,6 +1,4 @@
 const app = require('../back/server');
+const { createExpressHandler } = require('../back/src/vercel-handler');
 
-module.exports = async function handler(request, response) {
-  await app.ready;
-  return app(request, response);
-};
+module.exports = createExpressHandler(app);
