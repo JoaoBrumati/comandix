@@ -12,21 +12,6 @@ async function lookupCep(cep) {
   let notFound = false;
   const providers = [
     {
-      url: `https://viacep.com.br/ws/${cep}/json/`,
-      normalize: data => {
-        if (!data || data.erro === true || data.erro === 'true') return null;
-        return {
-          cep: String(data.cep || '').replace(/\D/g, ''),
-          address: data.logradouro || '',
-          district: data.bairro || '',
-          city: data.localidade || '',
-          state: data.uf || '',
-          lat: data.lat,
-          lng: data.lng
-        };
-      }
-    },
-    {
       url: `https://cep.awesomeapi.com.br/json/${cep}`,
       normalize: data => data
     },
@@ -41,6 +26,21 @@ async function lookupCep(cep) {
         lat: data.location?.coordinates?.latitude,
         lng: data.location?.coordinates?.longitude
       })
+    },
+    {
+      url: `https://viacep.com.br/ws/${cep}/json/`,
+      normalize: data => {
+        if (!data || data.erro === true || data.erro === 'true') return null;
+        return {
+          cep: String(data.cep || '').replace(/\D/g, ''),
+          address: data.logradouro || '',
+          district: data.bairro || '',
+          city: data.localidade || '',
+          state: data.uf || '',
+          lat: data.lat,
+          lng: data.lng
+        };
+      }
     }
   ];
 

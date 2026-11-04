@@ -2,6 +2,7 @@ const assert = require('node:assert/strict');
 const test = require('node:test');
 const { quoteDelivery, lookupCep } = require('./delivery');
 const cepHandler = require('../../api/cep/[cep]');
+const deliveryQuoteHandler = require('../../api/delivery/quote');
 
 test('lookupCep falls back to ViaCEP when the other providers reject the CEP', async t => {
   const previousFetch = global.fetch;
@@ -36,13 +37,15 @@ test('lookupCep falls back to ViaCEP when the other providers reject the CEP', a
 test('Vercel CEP handler returns the address for the requested CEP', async t => {
   const previousFetch = global.fetch;
   global.fetch = async url => {
-    assert.equal(String(url), 'https://viacep.com.br/ws/08727010/json/');
+    assert.equal(String(url), 'https://cep.awesomeapi.com.br/json/08727010');
     return new Response(JSON.stringify({
-      cep: '08727-010',
-      logradouro: 'Rua Maria Auxiliadora Andrade Costa',
-      bairro: 'Cidade Jardim',
-      localidade: 'Mogi das Cruzes',
-      uf: 'SP'
+      cep: '08727010',
+      address: 'Rua Maria Auxiliadora Andrade Costa',
+      district: 'Cidade Jardim',
+      city: 'Mogi das Cruzes',
+      state: 'SP',
+      lat: '-23.5677180',
+      lng: '-46.1904585'
     }), {
       status: 200,
       headers: { 'Content-Type': 'application/json' }
@@ -72,6 +75,45 @@ test('Vercel CEP handler returns the address for the requested CEP', async t => 
     city: 'Mogi das Cruzes',
     state: 'SP'
   });
+});
+
+test('Vercel delivery quote handler returns the delivery fee and distance', async t => {
+  const previousStoreCep = process.env.STORE_CEP;
+  const previousFetch = global.fetch;
+  process.env.STORE_CEP = '01001000';
+  global.fetch = async url => {
+    const cep = new URL(url).pathname.split('/').pop();
+    const isStore = cep === '01001000';
+    const data = isStore
+      ? { cep, lat: '-23.5505', lng: '-46.6333' }
+      : { cep, lat: '-23.555', lng: '-46.638' };
+    return new Response(JSON.stringify(data), {
+      status: 200,
+      headers: { 'Content-Type': 'application/json' }
+    });
+  };
+  t.after(() => {
+    if (previousStoreCep === undefined) delete process.env.STORE_CEP;
+    else process.env.STORE_CEP = previousStoreCep;
+    global.fetch = previousFetch;
+  });
+
+  const response = {
+    statusCode: 0,
+    body: null,
+    status(code) { this.statusCode = code; return this; },
+    json(body) { this.body = body; return this; },
+    setHeader() {}
+  };
+
+  await deliveryQuoteHandler({
+    method: 'POST',
+    body: { cep: '08727011' }
+  }, response);
+
+  assert.equal(response.statusCode, 200);
+  assert.equal(response.body.fee, 5);
+  assert.ok(response.body.distanceKm > 0);
 });
 
 test('quoteDelivery accepts a formatted store CEP', async t => {
