@@ -46,6 +46,26 @@ test('logAdminAuditEvent writes an audit record for admin actions', () => {
   assert.ok(output.includes('127.0.0.1'));
 });
 
+test('logAdminAuditEvent writes to runtime logs on Vercel instead of the read-only filesystem', () => {
+  const previousVercel = process.env.VERCEL;
+  const originalInfo = console.info;
+  const runtimeLogs = [];
+  process.env.VERCEL = '1';
+  console.info = message => runtimeLogs.push(message);
+
+  try {
+    const output = logAdminAuditEvent('admin_login_success', { ip: '127.0.0.1', originalUrl: '/api/admin/login' }, { username: 'admin' });
+    assert.ok(output.includes('admin_login_success'));
+    assert.equal(runtimeLogs.length, 1);
+    assert.ok(runtimeLogs[0].includes('[admin-audit]'));
+    assert.ok(runtimeLogs[0].includes('admin_login_success'));
+  } finally {
+    console.info = originalInfo;
+    if (previousVercel === undefined) delete process.env.VERCEL;
+    else process.env.VERCEL = previousVercel;
+  }
+});
+
 test('generateTotpCode and verifyTotpCode work together for 2FA', () => {
   const secret = 'JBSWY3DPEHPK3PXP';
   const code = generateTotpCode(secret);

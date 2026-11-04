@@ -144,8 +144,6 @@ function clearFailedLogin(ip) {
 }
 
 function logAdminAuditEvent(eventName, request, details = {}) {
-  const logDir = path.join(__dirname, '..', 'logs');
-  fs.mkdirSync(logDir, { recursive: true });
   const auditEntry = {
     timestamp: new Date().toISOString(),
     event: eventName,
@@ -155,7 +153,20 @@ function logAdminAuditEvent(eventName, request, details = {}) {
     ...details
   };
   const line = `${JSON.stringify(auditEntry)}\n`;
-  fs.appendFileSync(path.join(logDir, 'admin-audit.log'), line, 'utf8');
+
+  if (process.env.VERCEL) {
+    console.info(`[admin-audit] ${line.trim()}`);
+    return line.trim();
+  }
+
+  const logDir = path.join(__dirname, '..', 'logs');
+  try {
+    fs.mkdirSync(logDir, { recursive: true });
+    fs.appendFileSync(path.join(logDir, 'admin-audit.log'), line, 'utf8');
+  } catch (error) {
+    console.error(`Não foi possível gravar o arquivo de auditoria (${error.code || error.name}).`);
+    console.info(`[admin-audit] ${line.trim()}`);
+  }
   return line.trim();
 }
 
