@@ -11,7 +11,7 @@ const { lookupPublicAddress, quoteDelivery } = require('./src/delivery');
 const { orderSchema } = require('./src/validators');
 const adminStore = require('./src/admin');
 const { detectImageFormat, isAllowedImageMimeType } = require('./src/image-validation');
-const { hashPassword, verifyPassword, buildAdminCookie, buildCsrfCookie, clearAdminCookie, clearCsrfCookie, cookieValue, generateCsrfToken, getClientIp, recordFailedLogin, isBlockedIp, clearFailedLogin, logAdminAuditEvent, findRecentAuditLogs, isAllowedAdminIp, verifyTotpCode, buildSecurityAlertPayload, validateProductionConfig } = require('./src/security');
+const { hashPassword, verifyPassword, buildAdminCookie, buildCsrfCookie, clearAdminCookie, clearCsrfCookie, cookieValue, generateCsrfToken, getClientIp, recordFailedLogin, isBlockedIp, clearFailedLogin, logAdminAuditEvent, findRecentAuditLogs, isAllowedAdminIp, isAllowedAdminOrigin, verifyTotpCode, buildSecurityAlertPayload, validateProductionConfig } = require('./src/security');
 const { createCheckoutPreference, fetchMercadoPagoPayment, verifyWebhookSignature } = require('./src/payments');
 const { sendOrderNotification } = require('./src/whatsapp');
 
@@ -154,8 +154,7 @@ function requireAdmin(request, response, next) {
 }
 
 function requireSameOrigin(request, response, next) {
-  const origin = request.get('origin');
-  if (origin && origin !== clientOrigin) return response.status(403).json({ error: 'Origem não autorizada.' });
+  if (!isAllowedAdminOrigin(request, clientOrigin)) return response.status(403).json({ error: 'Origem não autorizada.' });
   next();
 }
 

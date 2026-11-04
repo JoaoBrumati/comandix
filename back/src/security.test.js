@@ -1,6 +1,6 @@
 const test = require('node:test');
 const assert = require('node:assert/strict');
-const { hashPassword, verifyPassword, buildAdminCookie, buildCsrfCookie, recordFailedLogin, isBlockedIp, logAdminAuditEvent, generateTotpCode, verifyTotpCode, isAllowedAdminIp, buildSecurityAlertPayload, validateProductionConfig } = require('./security');
+const { hashPassword, verifyPassword, buildAdminCookie, buildCsrfCookie, recordFailedLogin, isBlockedIp, logAdminAuditEvent, generateTotpCode, verifyTotpCode, isAllowedAdminIp, isAllowedAdminOrigin, buildSecurityAlertPayload, validateProductionConfig } = require('./security');
 
 test('hashPassword creates a verifiable password hash', async () => {
   const password = 'SenhaForte!123';
@@ -59,6 +59,19 @@ test('isAllowedAdminIp respects whitelist configuration', () => {
   assert.equal(isAllowedAdminIp('203.0.113.10', '203.0.113.10,10.0.0.1'), true);
   assert.equal(isAllowedAdminIp('198.51.100.55', '203.0.113.10,10.0.0.1'), false);
   assert.equal(isAllowedAdminIp('198.51.100.55', ''), true);
+});
+
+test('isAllowedAdminOrigin accepts the current deployment origin and configured origins', () => {
+  const request = {
+    protocol: 'https',
+    get: name => ({ origin: 'https://comandix-preview.vercel.app', host: 'comandix-preview.vercel.app' })[name]
+  };
+
+  assert.equal(isAllowedAdminOrigin(request, 'https://comandix.vercel.app'), true);
+  assert.equal(isAllowedAdminOrigin(request, 'https://comandix.vercel.app,https://admin.example.com'), true);
+  assert.equal(isAllowedAdminOrigin({ ...request, get: name => name === 'origin' ? 'https://attacker.example' : 'comandix-preview.vercel.app' }, 'https://comandix.vercel.app'), false);
+  assert.equal(isAllowedAdminOrigin({ ...request, get: name => name === 'origin' ? 'https://comandix-preview.vercel.app/path' : 'comandix-preview.vercel.app' }, ''), false);
+  assert.equal(isAllowedAdminOrigin({ get: () => undefined }, ''), true);
 });
 
 test('buildSecurityAlertPayload creates a safe alert payload', () => {

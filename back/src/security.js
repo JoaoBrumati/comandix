@@ -175,6 +175,36 @@ function isAllowedAdminIp(ip, allowedConfig = process.env.ADMIN_ALLOWED_IPS || '
   return safeAllowed.includes(safeIp);
 }
 
+function isAllowedAdminOrigin(request, configuredOrigin = process.env.CLIENT_ORIGIN || 'http://localhost:5173') {
+  const origin = request?.get?.('origin');
+  if (!origin) return true;
+
+  let originUrl;
+  try {
+    originUrl = new URL(origin);
+    if (!['http:', 'https:'].includes(originUrl.protocol) || originUrl.origin !== origin) return false;
+  } catch {
+    return false;
+  }
+
+  const configuredOrigins = String(configuredOrigin || '')
+    .split(',')
+    .map(value => value.trim())
+    .filter(Boolean)
+    .some(value => {
+      try {
+        return new URL(value).origin === originUrl.origin;
+      } catch {
+        return false;
+      }
+    });
+  if (configuredOrigins) return true;
+
+  const host = request.get('host');
+  if (!host || !['http', 'https'].includes(request.protocol)) return false;
+  return originUrl.origin === `${request.protocol}://${host}`;
+}
+
 function buildSecurityAlertPayload(event, ip, details = {}) {
   return {
     event,
@@ -247,6 +277,7 @@ module.exports = {
   logAdminAuditEvent,
   findRecentAuditLogs,
   isAllowedAdminIp,
+  isAllowedAdminOrigin,
   buildSecurityAlertPayload,
   validateProductionConfig
 };
