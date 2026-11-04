@@ -124,4 +124,8 @@ function publicAddress(cepData) {
   };
 }
 
-module.exports = { lookupCep, quoteDelivery, publicAddress };
+async function lookupPublicAddress(cep) {
+  return publicAddress(await lookupCep(cep));
+}
+
+module.exports = { lookupCep, lookupPublicAddress, quoteDelivery, publicAddress };

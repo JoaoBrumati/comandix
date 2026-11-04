@@ -1,6 +1,7 @@
 const assert = require('node:assert/strict');
 const test = require('node:test');
 const { quoteDelivery, lookupCep } = require('./delivery');
+const cepHandler = require('../../api/cep/[cep]');
 
 test('lookupCep falls back to ViaCEP when the other providers reject the CEP', async t => {
   const previousFetch = global.fetch;
@@ -30,6 +31,47 @@ test('lookupCep falls back to ViaCEP when the other providers reject the CEP', a
   assert.equal(data.address, 'Rua das Flores');
   assert.equal(data.city, 'São Paulo');
   assert.equal(data.state, 'SP');
+});
+
+test('Vercel CEP handler returns the address for the requested CEP', async t => {
+  const previousFetch = global.fetch;
+  global.fetch = async url => {
+    assert.equal(String(url), 'https://viacep.com.br/ws/08727010/json/');
+    return new Response(JSON.stringify({
+      cep: '08727-010',
+      logradouro: 'Rua Maria Auxiliadora Andrade Costa',
+      bairro: 'Cidade Jardim',
+      localidade: 'Mogi das Cruzes',
+      uf: 'SP'
+    }), {
+      status: 200,
+      headers: { 'Content-Type': 'application/json' }
+    });
+  };
+  t.after(() => { global.fetch = previousFetch; });
+
+  const response = {
+    statusCode: 0,
+    body: null,
+    status(code) { this.statusCode = code; return this; },
+    json(body) { this.body = body; return this; },
+    setHeader() {}
+  };
+
+  await cepHandler({
+    method: 'GET',
+    query: { cep: '08727010' },
+    url: '/api/cep/08727010'
+  }, response);
+
+  assert.equal(response.statusCode, 200);
+  assert.deepEqual(response.body, {
+    cep: '08727010',
+    street: 'Rua Maria Auxiliadora Andrade Costa',
+    neighborhood: 'Cidade Jardim',
+    city: 'Mogi das Cruzes',
+    state: 'SP'
+  });
 });
 
 test('quoteDelivery accepts a formatted store CEP', async t => {

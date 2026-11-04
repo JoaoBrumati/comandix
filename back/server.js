@@ -7,7 +7,7 @@ const multer = require('multer');
 const cors = require('cors');
 const helmet = require('helmet');
 const rateLimit = require('express-rate-limit');
-const { lookupCep, quoteDelivery, publicAddress } = require('./src/delivery');
+const { lookupPublicAddress, quoteDelivery } = require('./src/delivery');
 const { orderSchema } = require('./src/validators');
 const adminStore = require('./src/admin');
 const { detectImageFormat, isAllowedImageMimeType } = require('./src/image-validation');
@@ -339,7 +339,7 @@ app.use('/api/admin', adminApi);
 app.get('/api/cep/:cep', async (request, response) => {
   try {
     const cep = request.params.cep.replace(/\D/g, '');
-    return response.json(publicAddress(await lookupCep(cep)));
+    return response.json(await lookupPublicAddress(cep));
   } catch (error) {
     return response.status(error.status || 502).json({ error: error.message || 'Falha ao consultar o CEP.' });
   }
