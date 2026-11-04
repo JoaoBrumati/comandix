@@ -5,6 +5,10 @@
   "outputDirectory": "dist",
   "rewrites": [
     {
+      "source": "/api/admin/:path*",
+      "destination": "/api/admin?__admin_path=:path*"
+    },
+    {
       "source": "/admin",
       "destination": "/"
     },

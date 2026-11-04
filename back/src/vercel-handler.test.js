@@ -30,3 +30,43 @@ test('propagates Express initialization errors instead of fabricating a response
   await assert.rejects(createExpressHandler(app)({}, {}), error);
   assert.equal(forwarded, false);
 });
+
+test('restores nested admin paths and preserves their query string after a Vercel rewrite', async () => {
+  let receivedUrl;
+  const app = (request, _response) => { receivedUrl = request.url; };
+  app.ready = Promise.resolve();
+  const request = { url: '/api/admin?__admin_path=orders%2F123%2Fstatus&source=kanban' };
+  const response = {};
+
+  await createExpressHandler(app, {
+    routePrefix: '/api/admin',
+    routeQueryParam: '__admin_path'
+  })(request, response);
+
+  assert.equal(receivedUrl, '/api/admin/orders/123/status?source=kanban');
+});
+
+test('rejects invalid rewritten API paths before forwarding them to Express', async () => {
+  const app = () => assert.fail('invalid path must not be forwarded');
+  app.ready = Promise.resolve();
+  const request = { url: '/api/admin?__admin_path=orders%2F..%2Flogin' };
+  const response = {
+    statusCode: 0,
+    status(code) {
+      this.statusCode = code;
+      return this;
+    },
+    json(payload) {
+      this.payload = payload;
+      return this;
+    }
+  };
+
+  await createExpressHandler(app, {
+    routePrefix: '/api/admin',
+    routeQueryParam: '__admin_path'
+  })(request, response);
+
+  assert.equal(response.statusCode, 400);
+  assert.deepEqual(response.payload, { error: 'Caminho da API inválido.' });
+});

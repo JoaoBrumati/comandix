@@ -1,5 +1,6 @@
 const imageBase = window.location.protocol === 'file:' ? '../img/' : '/img/';
 const cartStorageKey = 'comandix-cart-v1';
+const maxItemQuantity = 20;
 let foods = [];
 let foodLayout = localStorage.getItem('comandix-food-layout') === 'rectangle' ? 'rectangle' : 'square';
 let addonGroups = { drinks: [], sides: [], sauces: [] };
@@ -47,9 +48,9 @@ function loadStoredCart() {
       && Number.isFinite(item.price)
       && Number.isInteger(item.quantity)
       && item.quantity > 0
-      && item.quantity <= 99
     ).map(item => ({
       ...item,
+      quantity: Math.min(item.quantity, maxItemQuantity),
       addons: Array.isArray(item.addons) ? item.addons.filter(addon => typeof addon === 'string') : [],
       options: Array.isArray(item.options) ? item.options.filter(option => typeof option === 'string') : [],
       optionIds: Array.isArray(item.optionIds) ? item.optionIds.filter(id => Number.isInteger(id) && id > 0) : []
@@ -154,6 +155,8 @@ function getDetailTotal() {
 }
 function updateDetailTotal() {
   document.querySelector('#detail-quantity').textContent = detailQuantity;
+  document.querySelector('#detail-decrease').disabled = detailQuantity <= 1;
+  document.querySelector('#detail-increase').disabled = detailQuantity >= maxItemQuantity;
   document.querySelector('#detail-total').textContent = money(getDetailTotal());
 }
 function openProduct(id) {
@@ -303,7 +306,7 @@ function renderCart() {
     cartItems.innerHTML = cart.map(item => {
       const addons = formatAddonSummary(item.addons);
       const options = item.options?.join(', ') || '';
-      return `<article class="cart-row"><img src="${foodImage(item)}" alt="${escapeText(item.name)}" /><div class="cart-detail"><h3>${escapeText(item.name)}</h3><p>${money(item.price)} cada${options ? `<br><strong>Escolhas:</strong> ${escapeText(options)}` : ''}${addons ? `<br><strong>Adicionais:</strong> ${escapeText(addons)}` : ''}</p></div><div class="qty"><button data-decrease="${item.id}" aria-label="Diminuir quantidade">−</button><span>${item.quantity}</span><button data-increase="${item.id}" aria-label="Aumentar quantidade">+</button></div><strong>${money(item.price * item.quantity)}</strong><button class="remove" data-remove="${item.id}" aria-label="Remover ${escapeText(item.name)}">×</button></article>`;
+      return `<article class="cart-row"><img src="${foodImage(item)}" alt="${escapeText(item.name)}" /><div class="cart-detail"><h3>${escapeText(item.name)}</h3><p>${money(item.price)} cada${options ? `<br><strong>Escolhas:</strong> ${escapeText(options)}` : ''}${addons ? `<br><strong>Adicionais:</strong> ${escapeText(addons)}` : ''}</p></div><div class="qty"><button data-decrease="${item.id}" aria-label="Diminuir quantidade">−</button><span>${item.quantity}</span><button data-increase="${item.id}" aria-label="Aumentar quantidade" ${item.quantity >= maxItemQuantity ? 'disabled' : ''}>+</button></div><strong>${money(item.price * item.quantity)}</strong><button class="remove" data-remove="${item.id}" aria-label="Remover ${escapeText(item.name)}">×</button></article>`;
     }).join('');
   }
   const subtotal = cart.reduce((sum, item) => sum + item.price * item.quantity, 0);
@@ -497,7 +500,20 @@ async function confirmPayment() {
   }
 }
 function showToast(message) { const toast = document.querySelector('#toast'); toast.textContent = message; toast.classList.add('show'); setTimeout(() => toast.classList.remove('show'), 2200); }
-function addToCart(id) { const food = foods.find(item => item.id === id); if (!food) return; if (food.optionGroup) { openProduct(id); return; } const existing = cart.find(item => item.id === id); existing ? existing.quantity++ : cart.push({ ...food, quantity: 1 }); renderCart(); showToast('Pedido adicionado!'); }
+function addToCart(id) {
+  const food = foods.find(item => item.id === id);
+  if (!food) return;
+  if (food.optionGroup) { openProduct(id); return; }
+  const existing = cart.find(item => item.id === id);
+  if (existing?.quantity >= maxItemQuantity) {
+    showToast(`O limite é de ${maxItemQuantity} unidades por produto.`);
+    return;
+  }
+  if (existing) existing.quantity += 1;
+  else cart.push({ ...food, quantity: 1 });
+  renderCart();
+  showToast('Pedido adicionado!');
+}
 
 async function loadStorefrontCatalog() {
   try {
@@ -547,11 +563,24 @@ document.querySelector('#close-menu').addEventListener('click', () => setNavigat
 drawerBackdrop.addEventListener('click', () => setNavigationDrawerOpen(false));
 sidebar.addEventListener('click', event => { if (event.target.closest('.nav-item')) setNavigationDrawerOpen(false); });
 document.querySelector('#orders-list').addEventListener('click', event => { const button = event.target.closest('[data-repeat]'); if (button) addToCart(Number(button.dataset.repeat)); });
-document.querySelector('#cart-items').addEventListener('click', event => { const button = event.target.closest('button'); if (!button) return; const id = Number(button.dataset.increase || button.dataset.decrease || button.dataset.remove); const item = cart.find(entry => entry.id === id); if (button.dataset.increase) item.quantity++; if (button.dataset.decrease) item.quantity > 1 ? item.quantity-- : cart = cart.filter(entry => entry.id !== id); if (button.dataset.remove) cart = cart.filter(entry => entry.id !== id); renderCart(); });
+document.querySelector('#cart-items').addEventListener('click', event => {
+  const button = event.target.closest('button');
+  if (!button) return;
+  const id = Number(button.dataset.increase || button.dataset.decrease || button.dataset.remove);
+  const item = cart.find(entry => entry.id === id);
+  if (!item) return;
+  if (button.dataset.increase && item.quantity < maxItemQuantity) item.quantity += 1;
+  if (button.dataset.decrease) {
+    if (item.quantity > 1) item.quantity -= 1;
+    else cart = cart.filter(entry => entry.id !== id);
+  }
+  if (button.dataset.remove) cart = cart.filter(entry => entry.id !== id);
+  renderCart();
+});
 document.querySelector('#checkout-card').addEventListener('click', event => { if (event.target.closest('#checkout-button')) openPayment(); });
 document.querySelector('#detail-close').addEventListener('click', closeProduct);
 document.querySelector('#product-overlay').addEventListener('click', event => { if (event.target.id === 'product-overlay') closeProduct(); });
-document.querySelector('#detail-increase').addEventListener('click', () => { detailQuantity++; updateDetailTotal(); });
+document.querySelector('#detail-increase').addEventListener('click', () => { if (detailQuantity < maxItemQuantity) detailQuantity++; updateDetailTotal(); });
 document.querySelector('#detail-decrease').addEventListener('click', () => { if (detailQuantity > 1) detailQuantity--; updateDetailTotal(); });
 document.querySelector('#detail-add').addEventListener('click', addConfiguredProduct);
 document.querySelector('#payment-close').addEventListener('click', closePayment);

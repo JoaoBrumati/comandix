@@ -1,6 +1,6 @@
 const test = require('node:test');
 const assert = require('node:assert/strict');
-const { hashPassword, verifyPassword, buildAdminCookie, buildCsrfCookie, recordFailedLogin, isBlockedIp, logAdminAuditEvent, generateTotpCode, verifyTotpCode, isAllowedAdminIp, isAllowedAdminOrigin, buildSecurityAlertPayload, validateProductionConfig } = require('./security');
+const { hashPassword, verifyPassword, buildAdminCookie, buildCsrfCookie, recordFailedLogin, isBlockedIp, logAdminAuditEvent, generateTotpCode, verifyTotpCode, getClientIp, isAllowedAdminIp, isAllowedAdminOrigin, buildSecurityAlertPayload, validateProductionConfig } = require('./security');
 
 test('hashPassword creates a verifiable password hash', async () => {
   const password = 'SenhaForte!123';
@@ -35,7 +35,7 @@ test('recordFailedLogin blocks repeated admin failures by IP', () => {
     recordFailedLogin(ip, { windowMs: 60_000, maxAttempts: 5, blockMs: 60_000 });
   }
 
-  assert.equal(isBlockedIp(ip, { windowMs: 60_000, maxAttempts: 5, blockMs: 60_000 }), true);
+  assert.equal(isBlockedIp(ip), true);
   assert.equal(recordFailedLogin(ip, { windowMs: 60_000, maxAttempts: 5, blockMs: 60_000 }), 'blocked');
 });
 
@@ -79,6 +79,17 @@ test('isAllowedAdminIp respects whitelist configuration', () => {
   assert.equal(isAllowedAdminIp('203.0.113.10', '203.0.113.10,10.0.0.1'), true);
   assert.equal(isAllowedAdminIp('198.51.100.55', '203.0.113.10,10.0.0.1'), false);
   assert.equal(isAllowedAdminIp('198.51.100.55', ''), true);
+});
+
+test('getClientIp uses the trusted Express IP instead of a raw forwarded header', () => {
+  const request = {
+    ip: '203.0.113.10',
+    socket: { remoteAddress: '127.0.0.1' },
+    get: name => name === 'x-forwarded-for' ? '198.51.100.55' : undefined
+  };
+
+  assert.equal(getClientIp(request), '203.0.113.10');
+  assert.equal(getClientIp({ socket: { remoteAddress: '::ffff:127.0.0.1' } }), '127.0.0.1');
 });
 
 test('isAllowedAdminOrigin accepts the current deployment origin and configured origins', () => {

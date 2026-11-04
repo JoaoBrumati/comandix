@@ -102,8 +102,6 @@ function normalizeIp(value = '') {
 }
 
 function getClientIp(request) {
-  const forwardedFor = request?.get ? request.get('x-forwarded-for') : '';
-  if (forwardedFor) return normalizeIp(forwardedFor);
   return normalizeIp(request?.ip || request?.socket?.remoteAddress || 'unknown');
 }
 
@@ -124,7 +122,7 @@ function recordFailedLogin(ip, options = {}) {
   return 'recorded';
 }
 
-function isBlockedIp(ip, options = {}) {
+function isBlockedIp(ip) {
   const safeIp = normalizeIp(ip);
   const now = Date.now();
   const blockUntil = blockedIpStore.get(safeIp);
