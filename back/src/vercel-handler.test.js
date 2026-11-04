@@ -1,6 +1,19 @@
 const assert = require('node:assert/strict');
+const fs = require('node:fs');
+const path = require('node:path');
 const test = require('node:test');
 const { createExpressHandler } = require('./vercel-handler');
+
+test('rewrites nested admin requests to a separate Vercel function', () => {
+  const config = JSON.parse(fs.readFileSync(path.join(__dirname, '..', '..', 'vercel.json'), 'utf8'));
+  const adminRewrite = config.rewrites.find(rewrite => rewrite.source === '/api/admin/:path*');
+
+  assert.deepEqual(adminRewrite, {
+    source: '/api/admin/:path*',
+    destination: '/api/admin-handler?__admin_path=:path*'
+  });
+  assert.notEqual(adminRewrite.destination.split('?')[0], '/api/admin');
+});
 
 test('waits for Express initialization before forwarding Vercel requests', async () => {
   let resolveReady;
