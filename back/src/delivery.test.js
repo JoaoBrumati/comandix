@@ -116,6 +116,66 @@ test('Vercel delivery quote handler returns the delivery fee and distance', asyn
   assert.ok(response.body.distanceKm > 0);
 });
 
+test('quoteDelivery uses precise store coordinates when the customer shares the store CEP', async t => {
+  const previousStoreCep = process.env.STORE_CEP;
+  const previousStoreLat = process.env.STORE_LAT;
+  const previousStoreLng = process.env.STORE_LNG;
+  const previousFetch = global.fetch;
+  process.env.STORE_CEP = '99999999';
+  process.env.STORE_LAT = '-23.5654311';
+  process.env.STORE_LNG = '-46.1867445';
+  global.fetch = async () => new Response(JSON.stringify({
+    cep: '99999999',
+    lat: '-23.5677180',
+    lng: '-46.1904585'
+  }), {
+    status: 200,
+    headers: { 'Content-Type': 'application/json' }
+  });
+  t.after(() => {
+    if (previousStoreCep === undefined) delete process.env.STORE_CEP;
+    else process.env.STORE_CEP = previousStoreCep;
+    if (previousStoreLat === undefined) delete process.env.STORE_LAT;
+    else process.env.STORE_LAT = previousStoreLat;
+    if (previousStoreLng === undefined) delete process.env.STORE_LNG;
+    else process.env.STORE_LNG = previousStoreLng;
+    global.fetch = previousFetch;
+  });
+
+  const quote = await quoteDelivery('99999999');
+  assert.equal(quote.distanceKm, 0.5);
+});
+
+test('quoteDelivery reports when the hosted store location is not configured', async t => {
+  const previousStoreCep = process.env.STORE_CEP;
+  const previousStoreLat = process.env.STORE_LAT;
+  const previousStoreLng = process.env.STORE_LNG;
+  const previousFetch = global.fetch;
+  delete process.env.STORE_CEP;
+  delete process.env.STORE_LAT;
+  delete process.env.STORE_LNG;
+  global.fetch = async url => new Response(JSON.stringify({
+    cep: new URL(url).pathname.split('/').pop(),
+    lat: '-23.5505',
+    lng: '-46.6333'
+  }), {
+    status: 200,
+    headers: { 'Content-Type': 'application/json' }
+  });
+  t.after(() => {
+    if (previousStoreCep === undefined) delete process.env.STORE_CEP;
+    else process.env.STORE_CEP = previousStoreCep;
+    if (previousStoreLat === undefined) delete process.env.STORE_LAT;
+    else process.env.STORE_LAT = previousStoreLat;
+    if (previousStoreLng === undefined) delete process.env.STORE_LNG;
+    else process.env.STORE_LNG = previousStoreLng;
+    global.fetch = previousFetch;
+  });
+
+  await assert.rejects(quoteDelivery('77777777'), error =>
+    error.status === 503 && /STORE_LAT e STORE_LNG/.test(error.message));
+});
+
 test('quoteDelivery accepts a formatted store CEP', async t => {
   const previousStoreCep = process.env.STORE_CEP;
   const previousFetch = global.fetch;

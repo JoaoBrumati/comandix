@@ -28,6 +28,9 @@ const escapeHtml = value => String(value ?? '').replace(/[&<>"']/g, character =>
 const formatCurrency = value => `R$ ${Number(value || 0).toFixed(2).replace('.', ',')}`;
 const formatDate = value => value ? new Date(value).toLocaleDateString('pt-BR') : 'Não programada';
 const formatDateTime = value => value ? new Date(value).toLocaleString('pt-BR', { dateStyle: 'short', timeStyle: 'short' }) : 'Nenhum ponto registrado';
+const paymentMethodLabel = payment => payment.method === 'cash'
+  ? 'Dinheiro na entrega'
+  : ({ credit_card: 'Cartão de crédito', debit_card: 'Cartão de débito', pix: 'Pix' }[payment.paymentType] || 'Mercado Pago');
 const groupOrderStorageKey = 'comandix-category-order';
 
 function getStoredGroupOrder(groups = []) {
@@ -166,7 +169,7 @@ async function loadDashboard() {
     ['Ticket médio', formatCurrency(averageOrder), 'Faturamento ÷ total de pedidos']
   ];
   document.querySelector('#admin-metrics').innerHTML = metrics.map(([title, value, note], index) => `<article class="admin-metric" data-dashboard-group="${index === 0 || index === 2 ? 'orders' : 'revenue'}"><span>${title}</span><strong>${value}</strong><small>${note}</small></article>`).join('');
-  document.querySelector('#admin-orders-summary').innerHTML = data.orders.length ? data.orders.map(order => `<article class="admin-order-row"><div><strong>${escapeHtml(order.items.map(item => `${item.quantity}x ${item.name}${item.options?.length ? ` (Escolhas: ${item.options.join(', ')})` : ''}${item.addons?.length ? ` (Adicionais: ${item.addons.join(', ')})` : ''}`).join(', '))}</strong><small>${formatDateTime(order.createdAt)} · ${escapeHtml(order.payment.method.toUpperCase())}</small></div><span>Itens ${formatCurrency(order.subtotal)}<small>Entrega ${formatCurrency(order.deliveryFee)}</small></span><b>${formatCurrency(order.total)}</b></article>`).join('') : '<div class="admin-empty">Ainda não há pedidos registrados neste período.</div>';
+  document.querySelector('#admin-orders-summary').innerHTML = data.orders.length ? data.orders.map(order => `<article class="admin-order-row"><div><strong>${escapeHtml(order.items.map(item => `${item.quantity}x ${item.name}${item.options?.length ? ` (Escolhas: ${item.options.join(', ')})` : ''}${item.addons?.length ? ` (Adicionais: ${item.addons.join(', ')})` : ''}`).join(', '))}</strong><small>${formatDateTime(order.createdAt)} · ${escapeHtml(paymentMethodLabel(order.payment))}</small></div><span>Itens ${formatCurrency(order.subtotal)}<small>Entrega ${formatCurrency(order.deliveryFee)}</small></span><b>${formatCurrency(order.total)}</b></article>`).join('') : '<div class="admin-empty">Ainda não há pedidos registrados neste período.</div>';
   renderDashboardRevenue(data.orders);
   renderDashboardStatuses(data.orders, data.orderCount);
   renderDashboardProducts(data.orders);
@@ -267,7 +270,7 @@ function exportDashboardOrders() {
       order.subtotal.toFixed(2),
       order.deliveryFee.toFixed(2),
       order.total.toFixed(2),
-      order.payment.method
+      paymentMethodLabel(order.payment)
     ])
   ];
   const csvValue = value => {

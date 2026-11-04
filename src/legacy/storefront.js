@@ -216,10 +216,15 @@ function renderOrderTracking(order) {
   const items = order.items?.map(item => `${item.quantity}× ${escapeText(item.name)}${item.options?.length ? ` (Escolhas: ${escapeText(item.options.join(', '))})` : ''}${item.addons?.length ? ` (Adicionais: ${escapeText(item.addons.join(', '))})` : ''}`).join('<br>') || '';
   const total = money(Number(order.total || 0));
   const paymentStatuses = { pending: 'Aguardando pagamento', approved: 'Pago', authorized: 'Autorizado', in_process: 'Em processamento', in_mediation: 'Em análise', rejected: 'Recusado', cancelled: 'Cancelado', refunded: 'Reembolsado', charged_back: 'Contestado' };
+  const paymentMethods = { credit_card: 'Cartão de crédito', debit_card: 'Cartão de débito', pix: 'Pix' };
+  const paymentMethod = order.payment?.method === 'cash'
+    ? 'Dinheiro na entrega'
+    : `${paymentMethods[order.payment?.paymentType] || 'Mercado Pago'}`;
   const statusMessage = displayStatus === 'cancelled' ? '<p class="lookup-feedback">Este pedido foi cancelado.</p>' : '';
   document.querySelector('#order-tracking').innerHTML = `
     <div class="tracking-summary"><div><span>Pedido</span><strong>#${orderCode}</strong></div><div><span>Valor total</span><strong>${total}</strong></div></div>
     <div class="tracking-summary"><div><span>Pagamento</span><strong>${escapeText(paymentStatuses[order.payment?.status] || 'Aguardando confirmação')}</strong></div></div>
+    <div class="tracking-summary"><div><span>Forma de pagamento</span><strong>${escapeText(paymentMethod)}</strong></div></div>
     ${timeline}
     ${statusMessage}
     <div class="tracking-summary"><div><span>Itens</span><strong>${escapeText(order.items?.length ? order.items.length : 0)} itens</strong></div><div><span>Atualização</span><strong>${orderStatusLabels[displayStatus] || 'Pedido em análise'}</strong></div></div>
@@ -438,8 +443,16 @@ function closePayment() {
 }
 function paymentPayload(method) {
   const payload = { customer: { name: document.querySelector('#customer-name').value.trim(), phone: normalizeBrazilianPhone(document.querySelector('#customer-phone').value), whatsappOptIn: document.querySelector('#whatsapp-opt-in').checked, cep: document.querySelector('#delivery-cep').value.replace(/\D/g, ''), street: document.querySelector('#delivery-street').value.trim(), number: document.querySelector('#delivery-number').value.trim(), neighborhood: document.querySelector('#delivery-neighborhood').value.trim(), city: document.querySelector('#delivery-city').value.trim(), state: document.querySelector('#delivery-state').value.trim().toUpperCase(), residenceType: document.querySelector('[name="residence-type"]:checked').value, complement: document.querySelector('#delivery-complement').value.trim(), reference: document.querySelector('#delivery-reference').value.trim() }, items: cart.map(item => ({ productId: item.originalId || item.id, quantity: item.quantity, addons: item.addons || [], options: item.optionIds || [] })) };
-  if (method === 'mercadopago') payload.payment = { method: 'mercadopago' };
-  if (method === 'cash') payload.payment = { method: 'cash', changeFor: Number((document.querySelector('#cash-change').value || '').replace(',', '.')) || undefined };
+  if (['credit_card', 'debit_card', 'pix'].includes(method)) {
+    payload.payment = { method: 'mercadopago', paymentType: method };
+  } else if (method === 'cash') {
+    const changeFor = Number(document.querySelector('#cash-change').value) || undefined;
+    const orderTotal = cart.reduce((sum, item) => sum + item.price * item.quantity, 0) + (deliveryQuote?.fee || 0);
+    if (changeFor && changeFor < orderTotal) throw new Error('O valor para troco precisa ser igual ou maior que o total do pedido.');
+    payload.payment = { method: 'cash', changeFor };
+  } else {
+    throw new Error('Selecione uma forma de pagamento.');
+  }
   return payload;
 }
 async function confirmPayment() {
@@ -449,7 +462,7 @@ async function confirmPayment() {
   const originalButtonContent = confirmButton.innerHTML;
   confirmButton.disabled = true;
   confirmButton.textContent = 'Enviando pedido…';
-  const method = document.querySelector('.payment-method.active').dataset.method;
+  const method = document.querySelector('.payment-method.active')?.dataset.method;
   const error = document.querySelector('#payment-error');
   error.textContent = '';
   try {
@@ -542,7 +555,23 @@ document.querySelector('#detail-increase').addEventListener('click', () => { det
 document.querySelector('#detail-decrease').addEventListener('click', () => { if (detailQuantity > 1) detailQuantity--; updateDetailTotal(); });
 document.querySelector('#detail-add').addEventListener('click', addConfiguredProduct);
 document.querySelector('#payment-close').addEventListener('click', closePayment);
-document.querySelector('#payment-methods').addEventListener('click', event => { const method = event.target.closest('[data-method]'); if (!method) return; document.querySelectorAll('.payment-method').forEach(item => item.classList.toggle('active', item === method)); document.querySelectorAll('.payment-panel').forEach(panel => panel.classList.toggle('active', panel.dataset.panel === method.dataset.method)); });
+document.querySelector('#payment-methods').addEventListener('click', event => {
+  const method = event.target.closest('[data-method]');
+  if (!method) return;
+  document.querySelectorAll('.payment-method').forEach(item => {
+    const selected = item === method;
+    item.classList.toggle('active', selected);
+    item.setAttribute('aria-pressed', String(selected));
+  });
+  document.querySelectorAll('.payment-panel').forEach(panel => panel.classList.toggle('active', panel.dataset.panel === method.dataset.method));
+  const buttonLabels = {
+    credit_card: 'Ir para pagamento com crédito',
+    debit_card: 'Ir para pagamento com débito',
+    pix: 'Gerar pagamento Pix',
+    cash: 'Confirmar pedido'
+  };
+  document.querySelector('#confirm-payment').firstChild.textContent = buttonLabels[method.dataset.method] || 'Confirmar pedido';
+});
 document.querySelector('#confirm-payment').addEventListener('click', confirmPayment);
 document.querySelector('#continue-payment').addEventListener('click', continueToPayment);
 document.querySelector('#order-lookup-form')?.addEventListener('submit', lookupOrderByReference);

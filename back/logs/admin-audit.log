@@ -1322,3 +1322,4 @@
 {"timestamp":"2026-11-03T01:24:46.212Z","event":"admin_api_call","ip":"::1","method":"GET","url":"/api/admin/menu","path":"/api/admin/menu"}
 {"timestamp":"2026-11-03T01:25:13.972Z","event":"admin_api_call","ip":"::1","method":"PATCH","url":"/api/admin/menu/groups/Salgado","path":"/api/admin/menu/groups/Salgado"}
 {"timestamp":"2026-11-03T01:25:15.562Z","event":"admin_api_call","ip":"::1","method":"GET","url":"/api/admin/menu","path":"/api/admin/menu"}
+{"timestamp":"2026-11-04T14:20:43.425Z","event":"admin_login_success","ip":"127.0.0.1","method":"UNKNOWN","url":"/api/admin/login","username":"admin"}

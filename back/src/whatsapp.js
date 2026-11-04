@@ -7,6 +7,11 @@ const statusTemplates = {
 
 const formatCurrency = value => `R$ ${Number(value || 0).toFixed(2).replace('.', ',')}`;
 const textParameter = value => ({ type: 'text', text: String(value || '').slice(0, 1024) });
+const paymentMethodLabels = {
+  credit_card: 'Cartão de crédito pelo Mercado Pago',
+  debit_card: 'Cartão de débito pelo Mercado Pago',
+  pix: 'PIX pelo Mercado Pago'
+};
 
 function formatPhone(value) {
   const phone = String(value || '').replace(/\D/g, '');
@@ -21,7 +26,10 @@ function buildOrderNotification(status, order, estimate = process.env.WHATSAPP_D
   if (status === 'new') {
     const items = order.items.map(item => `${item.quantity} x ${item.name}${item.options?.length ? ` (Escolhas: ${item.options.join(', ')})` : ''}${item.addons?.length ? ` (Adicionais: ${item.addons.join(', ')})` : ''}\n  Produto: ${formatCurrency(item.unitPrice)}\n  Subtotal: ${formatCurrency(item.total)}`).join('\n\n').slice(0, 1000);
     const createdAt = new Date(order.createdAt).toLocaleString('pt-BR', { dateStyle: 'short', timeStyle: 'short', timeZone: 'America/Sao_Paulo' });
-    parameters = [orderCode, createdAt, order.customer.name, order.customer.phone, order.customer.address, items, formatCurrency(order.subtotal), formatCurrency(order.deliveryFee), formatCurrency(order.total), order.payment.method === 'cash' ? 'Dinheiro na entrega' : 'Cartão ou PIX pelo Mercado Pago', estimate].map(textParameter);
+    const paymentDescription = order.payment.method === 'cash'
+      ? `Dinheiro na entrega${order.payment.changeFor ? ` (troco para ${formatCurrency(order.payment.changeFor)})` : ''}`
+      : paymentMethodLabels[order.payment.paymentType] || 'Pagamento pelo Mercado Pago';
+    parameters = [orderCode, createdAt, order.customer.name, order.customer.phone, order.customer.address, items, formatCurrency(order.subtotal), formatCurrency(order.deliveryFee), formatCurrency(order.total), paymentDescription, estimate].map(textParameter);
   } else if (status === 'preparing') {
     parameters = [orderCode, estimate].map(textParameter);
   } else if (status === 'out_for_delivery') {

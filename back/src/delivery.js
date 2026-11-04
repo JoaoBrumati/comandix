@@ -95,7 +95,7 @@ async function getStoreCoordinates() {
     if (coordinates) return coordinates;
   }
   {
-    const error = new Error('A localização da loja ainda não está configurada. Informe STORE_CEP no arquivo .env.');
+    const error = new Error('A localização da loja não está disponível. Configure STORE_LAT e STORE_LNG nas variáveis de ambiente da hospedagem, ou informe um STORE_CEP com coordenadas disponíveis.');
     error.status = 503;
     throw error;
   }

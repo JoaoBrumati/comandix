@@ -24,7 +24,7 @@ function getAccessToken() {
   return accessToken;
 }
 
-function buildPreferencePayload({ orderId, items, deliveryFee, baseUrl }) {
+function buildPreferencePayload({ orderId, items, deliveryFee, baseUrl, paymentType }) {
   const preferenceItems = items.map(item => ({
     id: String(item.productId),
     title: item.name.slice(0, 200),
@@ -36,6 +36,13 @@ function buildPreferencePayload({ orderId, items, deliveryFee, baseUrl }) {
   if (deliveryFee > 0) preferenceItems.push({ title: 'Taxa de entrega', quantity: 1, unit_price: Number(deliveryFee.toFixed(2)), currency_id: 'BRL' });
 
   const orderReference = encodeURIComponent(orderId.slice(0, 8).toUpperCase());
+  const paymentTypeIds = ['credit_card', 'debit_card', 'bank_transfer', 'ticket', 'atm', 'prepaid_card', 'account_money'];
+  const selectedPaymentType = {
+    credit_card: 'credit_card',
+    debit_card: 'debit_card',
+    pix: 'bank_transfer'
+  }[paymentType];
+  if (!selectedPaymentType) throw paymentError('Selecione uma forma de pagamento online válida.', 400);
   return {
     items: preferenceItems,
     external_reference: orderId,
@@ -46,8 +53,11 @@ function buildPreferencePayload({ orderId, items, deliveryFee, baseUrl }) {
     },
     auto_return: 'approved',
     notification_url: `${baseUrl}/api/payments/mercadopago/webhook`,
-    payment_methods: { excluded_payment_types: [{ id: 'ticket' }] },
-    metadata: { order_id: orderId }
+    payment_methods: {
+      excluded_payment_types: paymentTypeIds.filter(id => id !== selectedPaymentType).map(id => ({ id })),
+      ...(paymentType === 'pix' ? { default_payment_method_id: 'pix' } : {})
+    },
+    metadata: { order_id: orderId, payment_type: paymentType }
   };
 }
 

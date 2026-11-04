@@ -36,6 +36,24 @@ test('rejects Brazilian phone numbers without a valid DDD and subscriber length'
   assert.equal(orderSchema.safeParse(order('+55 123456789012')).success, false);
 });
 
+test('accepts each Mercado Pago payment option separately', () => {
+  for (const paymentType of ['credit_card', 'debit_card', 'pix']) {
+    const result = orderSchema.safeParse({
+      ...order('11999999999'),
+      payment: { method: 'mercadopago', paymentType }
+    });
+    assert.equal(result.success, true, `expected ${paymentType} to be accepted`);
+  }
+});
+
+test('rejects unsupported Mercado Pago payment options', () => {
+  const result = orderSchema.safeParse({
+    ...order('11999999999'),
+    payment: { method: 'mercadopago', paymentType: 'cash' }
+  });
+  assert.equal(result.success, false);
+});
+
 test('accepts up to four distinct combo choices', () => {
   const parsed = orderSchema.safeParse({
     ...order('11999999999'),

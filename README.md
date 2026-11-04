@@ -17,7 +17,7 @@ Aplicação de pedidos com catálogo, adicionais e checkout.
 
 Na execução local, configure `CLIENT_ORIGIN=http://localhost:5173` para corresponder à origem padrão do Vite. Para permitir o acesso administrativo apenas pela própria máquina, configure `ADMIN_ALLOWED_IPS=127.0.0.1,::1` (loopback IPv4 e IPv6).
 
-Configure `STORE_CEP` no `.env` com o CEP do estabelecimento antes de ativar a cotação. Opcionalmente, use `STORE_LAT` e `STORE_LNG` para informar coordenadas mais precisas.
+Configure `STORE_LAT` e `STORE_LNG` com as coordenadas do estabelecimento para uma cotação de distância mais precisa. `STORE_CEP` pode ser usado como alternativa se o provedor de CEP retornar coordenadas. Em hospedagens como a Vercel, configure essas variáveis no ambiente de execução do projeto; o arquivo `.env` local não é enviado no deploy.
 
 O cliente informa o CEP de entrega; rua, bairro, cidade e UF são preenchidos pela consulta de CEP. Número, tipo de residência e ponto de referência são coletados no checkout. A taxa é calculada no servidor pela distância aproximada em linha reta entre as coordenadas dos CEPs: até 5 km custa R$ 5, acima de 5 e até 10 km custa R$ 10, e acima de 10 km custa R$ 20. Antes da cotação, o checkout mostra “Consultar”.
 
@@ -47,9 +47,16 @@ Use a URL pública de cada ambiente em `PUBLIC_BASE_URL` e `CLIENT_ORIGIN`. O pa
 
 ## Pagamento
 
-O checkout oferece dinheiro na entrega ou redireciona cartão/PIX ao Checkout Pro do Mercado Pago. A API cria a preferência com preços recalculados pelo servidor; a confirmação do pagamento só é atualizada após um webhook assinado e uma consulta autenticada ao Mercado Pago. Os dados de cartão permanecem no provedor.
+O checkout oferece cartão de crédito, cartão de débito, Pix e dinheiro na entrega. Crédito, débito e Pix são apresentados como opções separadas e cada uma redireciona ao Checkout Pro do Mercado Pago, limitada ao meio selecionado. A API cria a preferência com preços recalculados pelo servidor; a confirmação do pagamento só é atualizada após um webhook assinado e uma consulta autenticada ao Mercado Pago. Os dados de cartão permanecem no provedor. Para dinheiro, o cliente pode informar o valor para troco, que precisa ser igual ou maior que o total.
 
-Para testar cobrança, configure `PAYMENT_PROVIDER=mercadopago`, `MERCADOPAGO_ACCESS_TOKEN`, `MERCADOPAGO_WEBHOOK_SECRET` e `PUBLIC_BASE_URL`. Em produção, `PUBLIC_BASE_URL` precisa ser HTTPS e apontar para o domínio público que recebe `/api/payments/mercadopago/webhook`. Use credenciais de teste antes das credenciais de produção e confirme os eventos de pagamento no painel do Mercado Pago. Com `PAYMENT_PROVIDER=mock`, o sistema não inicia cobranças online.
+Para ativar pagamentos, configure na Vercel ou no `.env` local:
+
+- `PAYMENT_PROVIDER=mercadopago`.
+- `MERCADOPAGO_ACCESS_TOKEN` com o Access Token de teste para homologação e de produção para cobrar clientes reais.
+- `MERCADOPAGO_WEBHOOK_SECRET` com a chave secreta de assinatura de notificações Webhooks do Mercado Pago.
+- `PUBLIC_BASE_URL` com a URL HTTPS pública do site em produção.
+
+No painel do Mercado Pago, cadastre `https://<domínio-do-site>/api/payments/mercadopago/webhook` como URL de Webhooks e habilite notificações de pagamentos. Faça um pedido de teste para cada opção; confira o status pelo pedido e pelo webhook antes de substituir as credenciais de teste pelas de produção. Com `PAYMENT_PROVIDER=mock`, o sistema não inicia cobranças online. Nunca coloque Access Token ou chave de webhook no frontend nem no Git.
 
 ## Proteções aplicadas
 

@@ -83,6 +83,7 @@ function normalizeProduct(product, promotions = [], timestamp = new Date()) {
 }
 
 function normalizeOrder(order, includeCustomer = true) {
+  const paymentData = order.paymentData ? decryptJson(order.paymentData) : {};
   const result = {
     orderId: order.id,
     orderCode: order.id.slice(0, 8).toUpperCase(),
@@ -90,7 +91,12 @@ function normalizeOrder(order, includeCustomer = true) {
     subtotal: moneyNumber(order.subtotal),
     deliveryFee: moneyNumber(order.deliveryFee),
     total: moneyNumber(order.total),
-    payment: { method: order.paymentMethod, status: order.paymentStatus, ...(includeCustomer && order.paymentData ? decryptJson(order.paymentData) : {}) },
+    payment: {
+      method: order.paymentMethod,
+      status: order.paymentStatus,
+      ...(paymentData.paymentType ? { paymentType: paymentData.paymentType } : {}),
+      ...(includeCustomer ? paymentData : {})
+    },
     createdAt: order.createdAt.toISOString(),
     statusUpdatedAt: order.statusUpdatedAt.toISOString(),
     items: order.items.map(item => ({ productId: item.productId, name: item.name, quantity: item.quantity, addons: item.addons, options: item.options || [], unitPrice: moneyNumber(item.unitPrice), total: moneyNumber(item.total) }))
@@ -462,11 +468,13 @@ async function updateOrderPayment(orderId, payment) {
   try {
     const order = await prisma.order.findUnique({ where: { id: orderId }, include: { items: true } });
     if (!order || Math.abs(moneyNumber(order.total) - payment.amount) > 0.01) return false;
-    await prisma.order.update({
+    const previousPaymentData = order.paymentData ? decryptJson(order.paymentData) : {};
+    const updatedOrder = await prisma.order.update({
       where: { id: orderId },
-      data: { paymentStatus: payment.status, paymentData: encryptJson(payment) }
+      data: { paymentStatus: payment.status, paymentData: encryptJson({ ...previousPaymentData, ...payment }) },
+      include: { items: true }
     });
-    return payment.status === 'approved' && order.paymentStatus !== 'approved' ? normalizeOrder(order) : true;
+    return payment.status === 'approved' && order.paymentStatus !== 'approved' ? normalizeOrder(updatedOrder) : true;
   } catch (error) {
     if (error.code === 'P2025') return false;
     throw error;

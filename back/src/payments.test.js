@@ -7,6 +7,7 @@ test('builds a Mercado Pago preference with authoritative item and delivery amou
   const payload = buildPreferencePayload({
     orderId: '12345678-1234-4234-8234-123456789abc',
     baseUrl: 'https://store.example',
+    paymentType: 'credit_card',
     deliveryFee: 5,
     items: [{ productId: 7, name: 'Hamburguer', quantity: 2, unitPrice: 12.5, addons: ['Suco'] }]
   });
@@ -18,6 +19,34 @@ test('builds a Mercado Pago preference with authoritative item and delivery amou
   assert.equal(payload.external_reference, '12345678-1234-4234-8234-123456789abc');
   assert.match(payload.back_urls.success, /order_id=12345678/);
   assert.equal(payload.notification_url, 'https://store.example/api/payments/mercadopago/webhook');
+  assert.ok(payload.payment_methods.excluded_payment_types.some(type => type.id === 'bank_transfer'));
+  assert.ok(!payload.payment_methods.excluded_payment_types.some(type => type.id === 'credit_card'));
+});
+
+test('creates a preference restricted to the selected debit card or Pix payment type', () => {
+  for (const [paymentType, providerType] of [['debit_card', 'debit_card'], ['pix', 'bank_transfer']]) {
+    const payload = buildPreferencePayload({
+      orderId: '12345678-1234-4234-8234-123456789abc',
+      baseUrl: 'https://store.example',
+      paymentType,
+      deliveryFee: 0,
+      items: [{ productId: 7, name: 'Coxinha', quantity: 1, unitPrice: 5 }]
+    });
+
+    assert.ok(!payload.payment_methods.excluded_payment_types.some(type => type.id === providerType));
+    assert.ok(payload.payment_methods.excluded_payment_types.some(type => type.id !== providerType));
+    assert.equal(payload.metadata.payment_type, paymentType);
+    if (paymentType === 'pix') assert.equal(payload.payment_methods.default_payment_method_id, 'pix');
+  }
+});
+
+test('rejects preference creation without a supported payment type', () => {
+  assert.throws(() => buildPreferencePayload({
+    orderId: '12345678-1234-4234-8234-123456789abc',
+    baseUrl: 'https://store.example',
+    deliveryFee: 0,
+    items: []
+  }), error => error.status === 400);
 });
 
 test('accepts only the matching Mercado Pago webhook signature', () => {

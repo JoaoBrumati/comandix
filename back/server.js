@@ -401,15 +401,23 @@ app.post('/api/orders', asyncRoute(async (request, response) => {
     const subtotal = items.reduce((total, item) => total + item.total, 0);
     const deliveryFee = delivery.fee;
     const total = subtotal + deliveryFee;
+    if (parsed.data.payment.method === 'cash' && parsed.data.payment.changeFor && parsed.data.payment.changeFor < total) {
+      return response.status(400).json({ error: 'O valor para troco precisa ser igual ou maior que o total do pedido.' });
+    }
     const orderId = crypto.randomUUID();
     let payment;
     let checkoutUrl;
     if (parsed.data.payment.method === 'mercadopago') {
-      const preference = await createCheckoutPreference({ orderId, items, deliveryFee });
-      payment = { method: 'mercadopago', status: 'pending', preferenceId: preference.id };
+      const { paymentType } = parsed.data.payment;
+      const preference = await createCheckoutPreference({ orderId, items, deliveryFee, paymentType });
+      payment = { method: 'mercadopago', status: 'pending', paymentType, preferenceId: preference.id };
       checkoutUrl = preference.checkoutUrl;
     } else {
-      payment = { method: 'cash', status: 'pending' };
+      payment = {
+        method: 'cash',
+        status: 'pending',
+        ...(parsed.data.payment.changeFor ? { changeFor: parsed.data.payment.changeFor } : {})
+      };
     }
     const { name, phone, street, number, neighborhood, city, state, complement, reference } = parsed.data.customer;
     const customer = { name, phone, address: [street, number, complement, neighborhood, `${city}/${state}`].filter(Boolean).join(', '), reference };

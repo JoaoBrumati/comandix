@@ -51,17 +51,21 @@ function CheckoutDialog() {
           <section className="checkout-step" id="payment-step" aria-label="Forma de pagamento">
             <button className="back-to-delivery" id="back-to-delivery">← Voltar para entrega</button>
             <div className="payment-methods" id="payment-methods">
-              <button className="payment-method active" data-method="mercadopago"><span className="payment-method-icon">◈</span><strong>Cartão ou PIX</strong><small>Checkout seguro Mercado Pago</small></button>
-              <button className="payment-method" data-method="cash"><span className="payment-method-icon">◇</span><strong>Dinheiro</strong><small>Pagar na entrega</small></button>
+              <button className="payment-method active" data-method="credit_card" aria-pressed="true"><span className="payment-method-icon">▣</span><strong>Crédito</strong><small>Checkout seguro Mercado Pago</small></button>
+              <button className="payment-method" data-method="debit_card" aria-pressed="false"><span className="payment-method-icon">▣</span><strong>Débito</strong><small>Checkout seguro Mercado Pago</small></button>
+              <button className="payment-method" data-method="pix" aria-pressed="false"><span className="payment-method-icon">◇</span><strong>Pix</strong><small>Pagamento pelo Mercado Pago</small></button>
+              <button className="payment-method" data-method="cash" aria-pressed="false"><span className="payment-method-icon">◇</span><strong>Dinheiro</strong><small>Pagar na entrega</small></button>
             </div>
-            <div className="payment-panel active" data-panel="mercadopago"><div className="pix-box"><span>MERCADO PAGO</span><strong>Cartão e PIX</strong><small>O pagamento será concluído no ambiente seguro do Mercado Pago.</small></div></div>
-            <div className="payment-panel" data-panel="cash"><label>Troco para (opcional)<input id="cash-change" inputMode="decimal" placeholder="Ex.: 50,00" /></label><small className="secure-note">Informe o valor apenas se precisar de troco.</small></div>
+            <div className="payment-panel active" data-panel="credit_card"><div className="pix-box"><span>MERCADO PAGO</span><strong>Cartão de crédito</strong><small>Você informará os dados do cartão no ambiente seguro do Mercado Pago.</small></div></div>
+            <div className="payment-panel" data-panel="debit_card"><div className="pix-box"><span>MERCADO PAGO</span><strong>Cartão de débito</strong><small>Você informará os dados do cartão no ambiente seguro do Mercado Pago.</small></div></div>
+            <div className="payment-panel" data-panel="pix"><div className="pix-box"><span>MERCADO PAGO</span><strong>Pix</strong><small>O QR Code e o código Pix serão gerados no ambiente seguro do Mercado Pago.</small></div></div>
+            <div className="payment-panel" data-panel="cash"><label>Troco para (opcional)<input id="cash-change" type="number" min="0.01" step="0.01" inputMode="decimal" placeholder="Ex.: 50,00" /></label><small className="secure-note">Informe um valor igual ou maior que o total apenas se precisar de troco.</small></div>
             <div className="payment-summary">
               <div><span>Itens</span><strong id="payment-subtotal">R$ 0,00</strong></div>
               <div><span>Taxa de entrega</span><strong id="payment-delivery-fee">Consultar</strong></div>
               <div className="payment-grand-total"><span>Total do pedido</span><strong id="payment-total">Consultar</strong></div>
             </div>
-            <button className="confirm-payment" id="confirm-payment">Confirmar pedido <span>→</span></button>
+            <button className="confirm-payment" id="confirm-payment">Ir para pagamento seguro <span>→</span></button>
           </section>
           <p className="payment-error" id="payment-error" role="alert" />
         </div>

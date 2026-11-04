@@ -8,7 +8,7 @@ const sampleOrder = {
   subtotal: 85,
   deliveryFee: 5,
   total: 90,
-  payment: { method: 'mercadopago' },
+  payment: { method: 'mercadopago', paymentType: 'credit_card' },
   customer: { name: 'Maria Silva', phone: '11999999999', address: 'Rua A, 10, Centro, São Paulo/SP' },
   items: [{ name: 'Combo trio', quantity: 1, unitPrice: 85, total: 85, options: ['Coxinha', 'Kibe'], addons: [] }]
 };
@@ -24,7 +24,26 @@ test('builds the order confirmation with the customer and pricing details', () =
   assert.match(notification.parameters[5].text, /Subtotal: R\$ 85,00/);
   assert.equal(notification.parameters[7].text, 'R$ 5,00');
   assert.equal(notification.parameters[8].text, 'R$ 90,00');
-  assert.equal(notification.parameters[9].text, 'Cartão ou PIX pelo Mercado Pago');
+  assert.equal(notification.parameters[9].text, 'Cartão de crédito pelo Mercado Pago');
+});
+
+test('describes the selected Mercado Pago method or cash change in order notifications', () => {
+  for (const [paymentType, expected] of [
+    ['debit_card', 'Cartão de débito pelo Mercado Pago'],
+    ['pix', 'PIX pelo Mercado Pago']
+  ]) {
+    const notification = buildOrderNotification('new', {
+      ...sampleOrder,
+      payment: { method: 'mercadopago', paymentType }
+    });
+    assert.equal(notification.parameters[9].text, expected);
+  }
+
+  const cashNotification = buildOrderNotification('new', {
+    ...sampleOrder,
+    payment: { method: 'cash', changeFor: 100 }
+  });
+  assert.equal(cashNotification.parameters[9].text, 'Dinheiro na entrega (troco para R$ 100,00)');
 });
 
 test('builds messages for production, delivery route, and completed states', () => {

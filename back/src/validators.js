@@ -30,7 +30,10 @@ const orderSchema = z.object({
   })).min(1).max(30),
   payment: z.discriminatedUnion('method', [
     z.object({ method: z.literal('cash'), changeFor: z.number().positive().optional() }),
-    z.object({ method: z.literal('mercadopago') })
+    z.object({
+      method: z.literal('mercadopago'),
+      paymentType: z.enum(['credit_card', 'debit_card', 'pix'])
+    })
   ])
 });
 
