@@ -40,11 +40,11 @@ Cadastre na Vercel, sem adicionar segredos ao Git:
 
 - `DATABASE_URL`, `DIRECT_URL` e `DATA_ENCRYPTION_KEY`; aplique as migrations no PostgreSQL antes do primeiro uso.
 - `ADMIN_PASSWORD` (mínimo de 12 caracteres) ou `ADMIN_PASSWORD_HASH`.
-- `ADMIN_EMAIL` e `SMTP_HOST`, `SMTP_PORT`, `SMTP_SECURE`, `SMTP_USER`, `SMTP_PASSWORD` e `SMTP_FROM` para enviar os códigos de acesso.
+- `ADMIN_EMAIL` para identificar o administrador principal no painel. No primeiro login, cada perfil configura o Microsoft Authenticator escaneando um QR code; os próximos acessos usam o código de seis dígitos do aplicativo.
 - `PUBLIC_BASE_URL` com a URL HTTPS pública do site.
 - `CLIENT_ORIGIN` com a mesma origem pública do site, por exemplo `https://loja.exemplo.com`.
 
-Use a URL pública de cada ambiente em `PUBLIC_BASE_URL` e `CLIENT_ORIGIN`. O painel e a loja dependem do PostgreSQL configurado e acessível pela função. As sessões administrativas são persistidas no PostgreSQL e o token de sessão é armazenado como hash para funcionar entre instâncias serverless. Antes de publicar esta alteração, aplique a nova migration com `npm run db:deploy` usando as variáveis do banco de produção. Imagens novas continuam sendo gravadas no disco local da função e precisam de armazenamento compartilhado para persistir entre instâncias/deploys.
+Use a URL pública de cada ambiente em `PUBLIC_BASE_URL` e `CLIENT_ORIGIN`. O painel e a loja dependem do PostgreSQL configurado e acessível pela função. As sessões administrativas são persistidas no PostgreSQL e o token de sessão é armazenado como hash para funcionar entre instâncias serverless. Os segredos do Microsoft Authenticator são cifrados com `DATA_ENCRYPTION_KEY`; aplique as migrations com `npm run db:deploy` antes de publicar esta alteração. Na configuração inicial, guarde os códigos de recuperação exibidos: cada um só pode ser usado uma vez. Imagens novas continuam sendo gravadas no disco local da função e precisam de armazenamento compartilhado para persistir entre instâncias/deploys.
 
 ## Pagamento
 
@@ -72,7 +72,7 @@ No painel do Mercado Pago, cadastre `https://<domínio-do-site>/api/payments/mer
 
 ## Administração
 
-O usuário administrativo é `admin` (`ADMIN_USER` no `.env`). Configure `ADMIN_PASSWORD` no mesmo arquivo com pelo menos 12 caracteres, `ADMIN_EMAIL` e as variáveis SMTP para liberar o acesso; a senha não possui valor padrão. Use `SMTP_SECURE=true` para conexão TLS direta (normalmente porta 465); em outros casos, a porta 587 usa STARTTLS. `SMTP_FROM` é opcional e, se vazio, o endereço `SMTP_USER` será usado como remetente. Após informar usuário e senha, o painel envia um código de seis dígitos ao e-mail cadastrado. O código expira em 10 minutos e é necessário para concluir o login. No painel, **Perfil** permite cadastrar colaboradores com nome, e-mail, senha e permissões individuais para Dashboard, Kanban e Cardápio; o nome ou e-mail e a senha cadastrada são usados para entrar. Apenas o administrador principal gerencia esses perfis.
+O usuário administrativo é `admin` (`ADMIN_USER` no `.env`). Configure `ADMIN_PASSWORD` com pelo menos 12 caracteres; a senha não possui valor padrão. `ADMIN_EMAIL` é opcional e serve para identificar o administrador principal no painel. No primeiro login, escaneie o QR code com o Microsoft Authenticator e confirme com o código de seis dígitos; os próximos logins pedem um código do aplicativo ou um código de recuperação. Guarde os códigos de recuperação, pois cada um só pode ser usado uma vez. No painel, **Perfil** permite cadastrar colaboradores com nome, e-mail, senha e permissões individuais para Dashboard, Kanban e Cardápio; o nome ou e-mail e a senha cadastrada são usados para entrar. Cada colaborador configura o próprio Microsoft Authenticator no primeiro acesso. Apenas o administrador principal gerencia esses perfis.
 
 A área permite dashboard diário, semanal, mensal e anual de pedidos e faturamento, cadastro e edição de colaboradores, programação de férias separada do cadastro, registro de ponto e anexos PDF/JPG/PNG de até 5 MB.
 

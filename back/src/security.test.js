@@ -109,12 +109,7 @@ test('validateProductionConfig blocks insecure production settings', () => {
     NODE_ENV: 'production',
     PUBLIC_BASE_URL: 'http://example.com',
     ADMIN_PASSWORD_HASH: 'short',
-    ADMIN_EMAIL: 'admin@example.com',
-    SMTP_HOST: 'smtp.example.com',
-    SMTP_PORT: '587',
-    SMTP_USER: 'admin@example.com',
-    SMTP_PASSWORD: 'smtp-password',
-    SMTP_FROM: 'admin@example.com'
+    ADMIN_EMAIL: 'admin@example.com'
   };
 
   const result = validateProductionConfig(env);
@@ -124,7 +119,7 @@ test('validateProductionConfig blocks insecure production settings', () => {
   assert.ok(result.errors.some(error => error.includes('HTTPS')));
 });
 
-test('allows production APIs to start when optional email delivery is not configured', () => {
+test('allows production APIs to start without email delivery configuration', () => {
   const result = validateProductionConfig({
     NODE_ENV: 'production',
     PUBLIC_BASE_URL: 'https://example.com',

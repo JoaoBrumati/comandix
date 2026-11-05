@@ -86,13 +86,14 @@ model AdminAccount {
   createdAt    DateTime       @default(now())
   sessions     AdminSession[]
   challenges   AdminLoginChallenge[]
+  totpCredential AdminTotpCredential?
 
   @@index([createdAt])
 }
 
 model AdminLoginChallenge {
   tokenHash String        @id @db.Char(64)
-  codeHash  String        @db.Char(64)
+  codeHash  String?       @db.Char(64)
   accountId String?       @db.Uuid
   expiresAt DateTime
   attempts  Int           @default(0)
@@ -101,6 +102,21 @@ model AdminLoginChallenge {
 
   @@index([expiresAt])
   @@index([accountId])
+}
+
+model AdminTotpCredential {
+  subjectKey        String        @id @db.VarChar(64)
+  accountId         String?       @unique @db.Uuid
+  secret            String        @db.Text
+  enabledAt         DateTime?
+  setupTokenHash    String?       @unique @db.Char(64)
+  setupExpiresAt    DateTime?
+  lastUsedCounter   BigInt        @default(-1)
+  recoveryCodeHashes String[]     @default([])
+  createdAt         DateTime      @default(now())
+  account           AdminAccount? @relation(fields: [accountId], references: [id], onDelete: Cascade)
+
+  @@index([setupExpiresAt])
 }
 
 model Product {

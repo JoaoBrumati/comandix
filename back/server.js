@@ -10,7 +10,8 @@ const rateLimit = require('express-rate-limit');
 const { lookupPublicAddress, quoteDelivery } = require('./src/delivery');
 const { orderSchema } = require('./src/validators');
 const adminStore = require('./src/admin');
-const { getAdminEmailErrorMessage, sendAdminLoginCode } = require('./src/admin-email');
+const QRCode = require('qrcode');
+const { createAuthenticatorUri, createRecoveryCodes, createTotpSecret, hashRecoveryCode, verifyTotp } = require('./src/admin-totp');
 const { detectImageFormat, isAllowedImageMimeType } = require('./src/image-validation');
 const { hashPassword, verifyPassword, buildAdminCookie, buildCsrfCookie, clearAdminCookie, clearCsrfCookie, cookieValue, generateCsrfToken, getClientIp, recordFailedLogin, isBlockedIp, clearFailedLogin, logAdminAuditEvent, findRecentAuditLogs, isAllowedAdminIp, isAllowedAdminOrigin, buildSecurityAlertPayload, validateProductionConfig } = require('./src/security');
 const { createCheckoutPreference, fetchMercadoPagoPayment, verifyWebhookSignature } = require('./src/payments');
@@ -29,7 +30,8 @@ const buildDir = path.join(__dirname, '..', 'dist');
 const imageDir = path.join(__dirname, '..', 'img');
 const menuImageDir = path.join(imageDir, 'menu');
 const sessionDuration = 8 * 60 * 60 * 1000;
-const loginCodeDuration = 10 * 60 * 1000;
+const totpChallengeDuration = 5 * 60 * 1000;
+const totpSetupDuration = 10 * 60 * 1000;
 let databaseReady = false;
 let databaseFailure = null;
 const uploadDocument = multer({
@@ -165,6 +167,11 @@ function requireSameOrigin(request, response, next) {
   next();
 }
 
+function preventAdminAuthCaching(_request, response, next) {
+  response.setHeader('Cache-Control', 'no-store');
+  next();
+}
+
 async function requireCsrf(request, response, next) {
   if (!['POST', 'PUT', 'PATCH', 'DELETE'].includes(request.method)) return next();
   const session = request.adminSession;
@@ -221,7 +228,22 @@ function requireSectionPermission(request, response, next) {
   next();
 }
 
-app.post('/api/admin/login', requireSameOrigin, adminLoginLimiter, asyncRoute(async (request, response) => {
+async function completeAdminLogin(request, response, account, extra = {}) {
+  clearFailedLogin(getClientIp(request));
+  const sessionToken = crypto.randomBytes(32).toString('base64url');
+  const csrfToken = generateCsrfToken();
+  await adminStore.createAdminSession(sessionToken, csrfToken, new Date(Date.now() + sessionDuration), account?.id);
+  response.setHeader('Set-Cookie', [buildAdminCookie(sessionToken), buildCsrfCookie(csrfToken)]);
+  logAdminAuditEvent('admin_login_success', request, { username: account?.name || process.env.ADMIN_USER || 'admin' });
+  return response.json({
+    authenticated: true,
+    csrfToken,
+    profile: getAdminProfile({ account, accountId: account?.id || null }),
+    ...extra
+  });
+}
+
+app.post('/api/admin/login', requireSameOrigin, preventAdminAuthCaching, adminLoginLimiter, asyncRoute(async (request, response) => {
   const clientIp = getClientIp(request);
   if (!isAllowedAdminIp(clientIp, process.env.ADMIN_ALLOWED_IPS)) {
     logAdminAuditEvent('admin_ip_blocked', request, { ip: clientIp, reason: 'not_in_whitelist' });
@@ -243,50 +265,86 @@ app.post('/api/admin/login', requireSameOrigin, adminLoginLimiter, asyncRoute(as
     if (process.env.ADMIN_ALERT_WEBHOOK) fetch(process.env.ADMIN_ALERT_WEBHOOK, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(alert) }).catch(() => {});
     return response.status(401).json({ error: 'Usuário ou senha administrativa incorretos.' });
   }
-  const email = account?.email || process.env.ADMIN_EMAIL || '';
-  if (!email) return response.status(503).json({ error: 'Configure ADMIN_EMAIL para receber os códigos de acesso do administrador principal.' });
-  const challengeToken = crypto.randomBytes(32).toString('base64url');
-  const code = String(crypto.randomInt(100000, 1000000));
-  await adminStore.createAdminLoginChallenge(challengeToken, code, new Date(Date.now() + loginCodeDuration), account?.id);
-  try {
-    await sendAdminLoginCode(email, code);
-  } catch (error) {
-    await adminStore.deleteAdminLoginChallenge(challengeToken);
-    console.error(`Não foi possível enviar o código de acesso por e-mail (${error.code || error.name}; SMTP ${error.responseCode || 'sem resposta'}).`);
-    return response.status(503).json({ error: getAdminEmailErrorMessage(error) });
+  const accountId = account?.id || null;
+  const credential = await adminStore.getAdminTotpCredential(accountId);
+  if (!credential?.enabledAt) {
+    const secret = createTotpSecret();
+    const setupToken = crypto.randomBytes(32).toString('base64url');
+    const setupResult = await adminStore.createAdminTotpSetup(setupToken, secret, new Date(Date.now() + totpSetupDuration), accountId);
+    if (setupResult.alreadyEnabled) {
+      const challengeToken = crypto.randomBytes(32).toString('base64url');
+      await adminStore.createAdminLoginChallenge(challengeToken, new Date(Date.now() + totpChallengeDuration), accountId);
+      return response.json({ requiresTotp: true, challengeToken, expiresIn: totpChallengeDuration });
+    }
+    const label = account?.email || process.env.ADMIN_EMAIL || username || 'Administrador';
+    const authenticatorUri = createAuthenticatorUri(secret, label);
+    const qrCodeDataUrl = await QRCode.toDataURL(authenticatorUri, { errorCorrectionLevel: 'M', margin: 1, width: 220 });
+    logAdminAuditEvent('admin_totp_setup_started', request, { username });
+    return response.json({
+      requiresTotpSetup: true,
+      setupToken,
+      secret,
+      qrCodeDataUrl,
+      expiresIn: totpSetupDuration
+    });
   }
-  logAdminAuditEvent('admin_login_code_sent', request, { username });
-  return response.json({
-    requiresEmailCode: true,
-    challengeToken,
-    email: email.replace(/^(.{1,2})[^@]*(@.*)$/, '$1***$2'),
-    expiresIn: loginCodeDuration
-  });
+  const challengeToken = crypto.randomBytes(32).toString('base64url');
+  await adminStore.createAdminLoginChallenge(challengeToken, new Date(Date.now() + totpChallengeDuration), accountId);
+  logAdminAuditEvent('admin_totp_challenge_created', request, { username });
+  return response.json({ requiresTotp: true, challengeToken, expiresIn: totpChallengeDuration });
 }));
 
-app.post('/api/admin/login/verify', requireSameOrigin, adminLoginLimiter, asyncRoute(async (request, response) => {
+app.post('/api/admin/login/totp/setup/verify', requireSameOrigin, preventAdminAuthCaching, adminLoginLimiter, asyncRoute(async (request, response) => {
+  const clientIp = getClientIp(request);
+  if (!isAllowedAdminIp(clientIp, process.env.ADMIN_ALLOWED_IPS)) {
+    return response.status(403).json({ error: 'Este IP não está autorizado para acessar o painel administrativo.' });
+  }
+  if (isBlockedIp(clientIp)) return response.status(403).json({ error: 'IP temporariamente bloqueado por muitas tentativas de login.' });
+  const setupToken = typeof request.body?.setupToken === 'string' ? request.body.setupToken : '';
+  const code = typeof request.body?.code === 'string' ? request.body.code : '';
+  const setup = await adminStore.getAdminTotpSetup(setupToken);
+  const counter = setup ? verifyTotp(setup.secret, code) : null;
+  if (counter === null) {
+    recordFailedLogin(clientIp);
+    logAdminAuditEvent('admin_totp_setup_failed', request, { reason: setup ? 'invalid_code' : 'expired_setup' });
+    return response.status(401).json({ error: 'O código está incorreto ou a configuração expirou. Tente novamente.' });
+  }
+  const recoveryCodes = createRecoveryCodes();
+  const activated = await adminStore.activateAdminTotpSetup(setupToken, counter, recoveryCodes.map(hashRecoveryCode));
+  if (!activated) return response.status(401).json({ error: 'A configuração expirou ou já foi concluída. Entre novamente para tentar.' });
+  const account = setup.accountId ? await adminStore.getAdminAccountById(setup.accountId) : null;
+  if (setup.accountId && !account) return response.status(401).json({ error: 'Este perfil não está mais ativo.' });
+  logAdminAuditEvent('admin_totp_enabled', request, { accountId: setup.accountId || 'owner' });
+  return completeAdminLogin(request, response, account, { recoveryCodes });
+}));
+
+app.post('/api/admin/login/verify', requireSameOrigin, preventAdminAuthCaching, adminLoginLimiter, asyncRoute(async (request, response) => {
   const clientIp = getClientIp(request);
   if (!isAllowedAdminIp(clientIp, process.env.ADMIN_ALLOWED_IPS)) {
     return response.status(403).json({ error: 'Este IP não está autorizado para acessar o painel administrativo.' });
   }
   if (isBlockedIp(clientIp)) return response.status(403).json({ error: 'IP temporariamente bloqueado por muitas tentativas de login.' });
   const challengeToken = typeof request.body?.challengeToken === 'string' ? request.body.challengeToken : '';
-  const code = typeof request.body?.code === 'string' ? request.body.code : '';
-  const challenge = await adminStore.verifyAdminLoginChallenge(challengeToken, code);
-  if (!challenge.valid) {
+  const code = typeof request.body?.code === 'string' ? request.body.code.trim() : '';
+  const challenge = await adminStore.getAdminLoginChallenge(challengeToken);
+  const credential = challenge ? await adminStore.getAdminTotpCredential(challenge.accountId) : null;
+  const counter = credential?.enabledAt
+    ? verifyTotp(credential.secret, code, Date.now(), Number(credential.lastUsedCounter))
+    : null;
+  const recoveryCodeHash = counter === null ? hashRecoveryCode(code) : '';
+  const hasRecoveryCode = Boolean(recoveryCodeHash && credential?.recoveryCodeHashes.includes(recoveryCodeHash));
+  const consumed = challenge && (counter !== null || hasRecoveryCode)
+    ? await adminStore.consumeAdminTotpLoginChallenge(challengeToken, challenge.accountId, counter, hasRecoveryCode ? recoveryCodeHash : '')
+    : false;
+  if (!consumed) {
+    await adminStore.recordAdminLoginChallengeFailure(challengeToken);
     recordFailedLogin(clientIp);
-    logAdminAuditEvent('admin_login_failed', request, { reason: 'invalid_email_code' });
-    return response.status(401).json({ error: 'O código está incorreto ou expirou. Tente novamente.' });
+    logAdminAuditEvent('admin_login_failed', request, { reason: 'invalid_totp_code' });
+    return response.status(401).json({ error: 'O código está incorreto, já foi usado ou expirou. Tente novamente.' });
   }
   const account = challenge.accountId ? await adminStore.getAdminAccountById(challenge.accountId) : null;
   if (challenge.accountId && !account) return response.status(401).json({ error: 'Este perfil não está mais ativo.' });
-  clearFailedLogin(clientIp);
-  const sessionToken = crypto.randomBytes(32).toString('base64url');
-  const csrfToken = generateCsrfToken();
-  await adminStore.createAdminSession(sessionToken, csrfToken, new Date(Date.now() + sessionDuration), account?.id);
-  response.setHeader('Set-Cookie', [buildAdminCookie(sessionToken), buildCsrfCookie(csrfToken)]);
-  logAdminAuditEvent('admin_login_success', request, { username: account?.name || process.env.ADMIN_USER || 'admin' });
-  return response.json({ authenticated: true, csrfToken, profile: getAdminProfile({ account, accountId: account?.id || null }) });
+  return completeAdminLogin(request, response, account);
 }));
 
 app.get('/api/admin/session', asyncRoute(requireAdmin), (request, response) => {
@@ -319,6 +377,10 @@ adminApi.post('/accounts', requireOwner, asyncRoute(async (request, response) =>
 adminApi.delete('/accounts/:id', requireOwner, asyncRoute(async (request, response) => {
   if (!await adminStore.deleteAdminAccount(request.params.id)) return response.status(404).json({ error: 'Perfil de colaborador não encontrado.' });
   return response.status(204).end();
+}));
+adminApi.delete('/accounts/:id/authenticator', requireOwner, asyncRoute(async (request, response) => {
+  if (!await adminStore.resetAdminAccountAuthenticator(request.params.id)) return response.status(404).json({ error: 'Perfil de colaborador não encontrado.' });
+  return response.json({ reset: true });
 }));
 adminApi.get('/security/logs', requireOwner, (_request, response) => response.json({ logs: findRecentAuditLogs(25) }));
 adminApi.get('/dashboard', asyncRoute(async (request, response) => response.json(await adminStore.getDashboard(request.query.period))));

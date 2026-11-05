@@ -1,13 +1,19 @@
 const adminLoginView = document.querySelector('#admin-login-view');
 const adminDashboardView = document.querySelector('#admin-dashboard-view');
 const adminLoginFeedback = document.querySelector('#admin-login-feedback');
-const adminEmailCodeForm = document.querySelector('#admin-email-code-form');
-const adminEmailCodeFeedback = document.querySelector('#admin-email-code-feedback');
+const adminLoginForm = document.querySelector('#admin-login-form');
+const adminTotpSetupForm = document.querySelector('#admin-totp-setup-form');
+const adminTotpCodeForm = document.querySelector('#admin-totp-code-form');
+const adminRecoveryCodes = document.querySelector('#admin-recovery-codes');
+const adminTotpSetupFeedback = document.querySelector('#admin-totp-setup-feedback');
+const adminTotpCodeFeedback = document.querySelector('#admin-totp-code-feedback');
 const employeeForm = document.querySelector('#employee-form');
 let selectedPeriod = 'daily';
 let requestedAdminSection = 'dashboard';
 let currentAdminProfile = null;
 let pendingLoginChallenge = '';
+let pendingTotpSetup = '';
+let pendingRecoveryLogin = null;
 let dashboardOrders = [];
 let adminMenuProducts = [];
 let adminMenuGroups = [];
@@ -189,8 +195,11 @@ async function loadAdminAccounts() {
   const permissionNames = { dashboard: 'Dashboard', orders: 'Kanban', menu: 'Cardápio' };
   document.querySelector('#admin-account-list').innerHTML = accounts.length
     ? accounts.map(account => `<article class="admin-account-row">
-        <div><strong>${escapeHtml(account.name)}</strong><span>${escapeHtml(account.email)}</span><small>Acessos: ${escapeHtml(account.permissions.map(permission => permissionNames[permission]).join(', '))}</small></div>
-        <button class="admin-secondary" type="button" data-delete-admin-account="${escapeHtml(account.id)}">Remover acesso</button>
+        <div><strong>${escapeHtml(account.name)}</strong><span>${escapeHtml(account.email)}</span><small>Acessos: ${escapeHtml(account.permissions.map(permission => permissionNames[permission]).join(', '))}</small><small>Microsoft Authenticator: ${account.authenticatorEnabled ? 'configurado' : 'aguardando primeiro acesso'}</small></div>
+        <div class="admin-account-actions">
+          ${account.authenticatorEnabled ? `<button class="admin-secondary" type="button" data-reset-admin-authenticator="${escapeHtml(account.id)}">Redefinir Authenticator</button>` : ''}
+          <button class="admin-secondary" type="button" data-delete-admin-account="${escapeHtml(account.id)}">Remover acesso</button>
+        </div>
       </article>`).join('')
     : '<p class="admin-empty">Nenhum colaborador cadastrado.</p>';
 }
@@ -220,12 +229,20 @@ async function submitAdminAccount(event) {
 }
 
 async function handleAdminAccountAction(event) {
-  const button = event.target.closest('[data-delete-admin-account]');
-  if (!button || !window.confirm('Remover o acesso deste colaborador?')) return;
+  const deleteButton = event.target.closest('[data-delete-admin-account]');
+  const resetButton = event.target.closest('[data-reset-admin-authenticator]');
+  const button = deleteButton || resetButton;
+  if (!button) return;
+  const isReset = Boolean(resetButton);
+  const confirmation = isReset
+    ? 'Redefinir o Microsoft Authenticator deste colaborador? A sessão será encerrada e será necessário configurar o aplicativo novamente.'
+    : 'Remover o acesso deste colaborador?';
+  if (!window.confirm(confirmation)) return;
   try {
-    await adminRequest(`/api/admin/accounts/${encodeURIComponent(button.dataset.deleteAdminAccount)}`, { method: 'DELETE' });
+    const accountId = encodeURIComponent(isReset ? button.dataset.resetAdminAuthenticator : button.dataset.deleteAdminAccount);
+    await adminRequest(isReset ? `/api/admin/accounts/${accountId}/authenticator` : `/api/admin/accounts/${accountId}`, { method: 'DELETE' });
     await loadAdminAccounts();
-    showAdminToast('Acesso do colaborador removido.');
+    showAdminToast(isReset ? 'Authenticator redefinido. O colaborador poderá configurá-lo no próximo login.' : 'Acesso do colaborador removido.');
   } catch (error) {
     showAdminToast(error.message);
   }
@@ -829,47 +846,101 @@ async function updateWhatsAppLink() {
   } catch { supportLink.href = '#'; }
 }
 
-document.querySelector('#admin-login-form').addEventListener('submit', async event => {
+adminLoginForm.addEventListener('submit', async event => {
   event.preventDefault();
   adminLoginFeedback.textContent = '';
   try {
     const payload = { username: document.querySelector('#admin-username').value.trim(), password: document.querySelector('#admin-password').value };
     const result = await adminRequest('/api/admin/login', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload) });
     document.querySelector('#admin-password').value = '';
+    adminLoginForm.hidden = true;
+    if (result.requiresTotpSetup) {
+      pendingTotpSetup = result.setupToken;
+      document.querySelector('#admin-totp-qr').src = result.qrCodeDataUrl;
+      document.querySelector('#admin-totp-secret').textContent = result.secret;
+      document.querySelector('#admin-totp-setup-code').value = '';
+      adminTotpSetupFeedback.textContent = '';
+      adminTotpSetupForm.hidden = false;
+      document.querySelector('#admin-totp-setup-code').focus();
+      return;
+    }
     pendingLoginChallenge = result.challengeToken;
-    document.querySelector('#admin-login-form').hidden = true;
-    document.querySelector('#admin-email-code-description').textContent = `Enviamos um código de seis dígitos para ${result.email}. O código expira em 10 minutos.`;
-    document.querySelector('#admin-email-code').value = '';
-    adminEmailCodeFeedback.textContent = '';
-    adminEmailCodeForm.hidden = false;
-    document.querySelector('#admin-email-code').focus();
+    document.querySelector('#admin-totp-code').value = '';
+    adminTotpCodeFeedback.textContent = '';
+    adminTotpCodeForm.hidden = false;
+    document.querySelector('#admin-totp-code').focus();
   } catch (error) { adminLoginFeedback.textContent = error.message; }
 });
 
-adminEmailCodeForm.addEventListener('submit', async event => {
+function finishAdminLogin(result) {
+  if (Array.isArray(result.recoveryCodes)) {
+    pendingRecoveryLogin = result;
+    document.querySelector('#admin-recovery-code-list').innerHTML = result.recoveryCodes.map(code => `<li><code>${escapeHtml(code.match(/.{4}/g).join('-'))}</code></li>`).join('');
+    adminTotpSetupForm.hidden = true;
+    adminTotpCodeForm.hidden = true;
+    adminRecoveryCodes.hidden = false;
+    return;
+  }
+  adminLoginView.hidden = true;
+  adminTotpCodeForm.hidden = true;
+  adminTotpSetupForm.hidden = true;
+  history.replaceState(null, '', `/admin#admin/${requestedAdminSection}`);
+  showAdminDashboard(result.profile).catch(error => showAdminToast(error.message));
+}
+
+adminTotpSetupForm.addEventListener('submit', async event => {
   event.preventDefault();
-  adminEmailCodeFeedback.textContent = '';
+  adminTotpSetupFeedback.textContent = '';
+  try {
+    const result = await adminRequest('/api/admin/login/totp/setup/verify', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ setupToken: pendingTotpSetup, code: document.querySelector('#admin-totp-setup-code').value.trim() })
+    });
+    pendingTotpSetup = '';
+    finishAdminLogin(result);
+  } catch (error) {
+    adminTotpSetupFeedback.textContent = error.message;
+  }
+});
+
+adminTotpCodeForm.addEventListener('submit', async event => {
+  event.preventDefault();
+  adminTotpCodeFeedback.textContent = '';
   try {
     const result = await adminRequest('/api/admin/login/verify', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ challengeToken: pendingLoginChallenge, code: document.querySelector('#admin-email-code').value.trim() })
+      body: JSON.stringify({ challengeToken: pendingLoginChallenge, code: document.querySelector('#admin-totp-code').value.trim() })
     });
     pendingLoginChallenge = '';
-    adminEmailCodeForm.hidden = true;
-    history.replaceState(null, '', `/admin#admin/${requestedAdminSection}`);
-    await showAdminDashboard(result.profile);
+    finishAdminLogin(result);
   } catch (error) {
-    adminEmailCodeFeedback.textContent = error.message;
+    adminTotpCodeFeedback.textContent = error.message;
   }
 });
 
-document.querySelector('#admin-email-code-back').addEventListener('click', () => {
+document.querySelector('#admin-totp-code-back').addEventListener('click', () => {
   pendingLoginChallenge = '';
-  adminEmailCodeForm.reset();
-  adminEmailCodeForm.hidden = true;
-  document.querySelector('#admin-login-form').hidden = false;
-  adminEmailCodeFeedback.textContent = '';
+  adminTotpCodeForm.reset();
+  adminTotpCodeForm.hidden = true;
+  adminLoginForm.hidden = false;
+  adminTotpCodeFeedback.textContent = '';
+});
+
+document.querySelector('#admin-totp-setup-back').addEventListener('click', () => {
+  pendingTotpSetup = '';
+  adminTotpSetupForm.reset();
+  adminTotpSetupForm.hidden = true;
+  adminLoginForm.hidden = false;
+  adminTotpSetupFeedback.textContent = '';
+});
+
+document.querySelector('#admin-recovery-continue').addEventListener('click', () => {
+  const result = pendingRecoveryLogin;
+  pendingRecoveryLogin = null;
+  adminRecoveryCodes.hidden = true;
+  if (result) finishAdminLogin({ profile: result.profile });
 });
 
 document.querySelector('#admin-logout').addEventListener('click', async () => {
@@ -877,8 +948,10 @@ document.querySelector('#admin-logout').addEventListener('click', async () => {
     history.replaceState(null, '', '/login');
     adminDashboardView.hidden = true;
     adminLoginView.hidden = false;
-    adminEmailCodeForm.hidden = true;
-    document.querySelector('#admin-login-form').hidden = false;
+    adminTotpCodeForm.hidden = true;
+    adminTotpSetupForm.hidden = true;
+    adminRecoveryCodes.hidden = true;
+    adminLoginForm.hidden = false;
     document.querySelector('#admin-profile-nav').hidden = true;
     document.querySelector('#admin-subnav').hidden = true;
   }

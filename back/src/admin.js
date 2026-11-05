@@ -6,7 +6,6 @@ const prisma = require('./db');
 const { decryptBuffer, decryptJson, encryptBuffer, encryptJson, hashCpf } = require('./encryption');
 const { hashPassword } = require('./security');
 const sessionTokenHash = token => crypto.createHash('sha256').update(token).digest('hex');
-const hashLoginCode = (token, code) => crypto.createHash('sha256').update(`${token}:${code}`).digest('hex');
 const maxLoginCodeAttempts = 5;
 const adminPermissions = ['dashboard', 'orders', 'menu'];
 const adminAccountSchema = z.object({
@@ -171,47 +170,128 @@ async function deleteAdminSession(token) {
   await prisma.adminSession.deleteMany({ where: { tokenHash: sessionTokenHash(token) } });
 }
 
-async function createAdminLoginChallenge(token, code, expiresAt, accountId = null) {
+function adminTotpSubjectKey(accountId = null) {
+  return accountId || 'owner';
+}
+
+async function getAdminTotpCredential(accountId = null) {
+  const credential = await prisma.adminTotpCredential.findUnique({ where: { subjectKey: adminTotpSubjectKey(accountId) } });
+  if (!credential) return null;
+  return { ...credential, secret: decryptBuffer(credential.secret).toString('utf8') };
+}
+
+async function createAdminTotpSetup(token, secret, expiresAt, accountId = null) {
+  const subjectKey = adminTotpSubjectKey(accountId);
+  const setupTokenHash = sessionTokenHash(token);
+  const encryptedSecret = encryptBuffer(Buffer.from(secret, 'utf8'));
+  const existing = await prisma.adminTotpCredential.findUnique({ where: { subjectKey } });
+  if (existing?.enabledAt) return { alreadyEnabled: true };
+  if (existing) {
+    const updated = await prisma.adminTotpCredential.updateMany({
+      where: { subjectKey, enabledAt: null },
+      data: { secret: encryptedSecret, setupTokenHash, setupExpiresAt: expiresAt, recoveryCodeHashes: [] }
+    });
+    return { alreadyEnabled: updated.count !== 1 };
+  }
+  try {
+    await prisma.adminTotpCredential.create({
+      data: {
+        subjectKey,
+        secret: encryptedSecret,
+        setupTokenHash,
+        setupExpiresAt: expiresAt,
+        ...(accountId ? { accountId } : {})
+      }
+    });
+    return { alreadyEnabled: false };
+  } catch (error) {
+    if (error.code !== 'P2002') throw error;
+    return createAdminTotpSetup(token, secret, expiresAt, accountId);
+  }
+}
+
+async function getAdminTotpSetup(token) {
+  if (typeof token !== 'string' || !token) return null;
+  const credential = await prisma.adminTotpCredential.findUnique({ where: { setupTokenHash: sessionTokenHash(token) } });
+  if (!credential || credential.enabledAt || !credential.setupExpiresAt || credential.setupExpiresAt <= new Date()) return null;
+  return { accountId: credential.accountId, secret: decryptBuffer(credential.secret).toString('utf8') };
+}
+
+async function activateAdminTotpSetup(token, counter, recoveryCodeHashes) {
+  if (typeof token !== 'string' || !token) return false;
+  const result = await prisma.adminTotpCredential.updateMany({
+    where: {
+      setupTokenHash: sessionTokenHash(token),
+      enabledAt: null,
+      setupExpiresAt: { gt: new Date() }
+    },
+    data: {
+      enabledAt: new Date(),
+      setupTokenHash: null,
+      setupExpiresAt: null,
+      lastUsedCounter: BigInt(counter),
+      recoveryCodeHashes
+    }
+  });
+  return result.count === 1;
+}
+
+async function createAdminLoginChallenge(token, expiresAt, accountId = null) {
   await prisma.adminLoginChallenge.deleteMany({ where: { expiresAt: { lte: new Date() } } });
   return prisma.adminLoginChallenge.create({
     data: {
       tokenHash: sessionTokenHash(token),
-      codeHash: hashLoginCode(token, code),
       expiresAt,
       ...(accountId ? { accountId } : {})
     }
   });
 }
 
-async function deleteAdminLoginChallenge(token) {
-  if (!token) return;
-  await prisma.adminLoginChallenge.deleteMany({ where: { tokenHash: sessionTokenHash(token) } });
-}
-
-async function verifyAdminLoginChallenge(token, code) {
-  if (typeof token !== 'string' || !token || typeof code !== 'string' || !/^\d{6}$/.test(code)) return { valid: false };
+async function getAdminLoginChallenge(token) {
+  if (!token) return null;
   const tokenHash = sessionTokenHash(token);
   const challenge = await prisma.adminLoginChallenge.findUnique({ where: { tokenHash } });
-  if (!challenge) return { valid: false };
-  const now = new Date();
-  if (challenge.expiresAt <= now || challenge.attempts >= maxLoginCodeAttempts) {
-    await deleteAdminLoginChallenge(token);
-    return { valid: false };
+  if (!challenge) return null;
+  if (challenge.expiresAt <= new Date() || challenge.attempts >= maxLoginCodeAttempts) {
+    await prisma.adminLoginChallenge.deleteMany({ where: { tokenHash } });
+    return null;
   }
-  const submittedHash = Buffer.from(hashLoginCode(token, code), 'hex');
-  const expectedHash = Buffer.from(challenge.codeHash, 'hex');
-  const codeMatches = submittedHash.length === expectedHash.length && crypto.timingSafeEqual(submittedHash, expectedHash);
-  if (!codeMatches) {
-    await prisma.adminLoginChallenge.updateMany({
-      where: { tokenHash, attempts: { lt: maxLoginCodeAttempts }, expiresAt: { gt: now } },
-      data: { attempts: { increment: 1 } }
-    });
-    return { valid: false };
-  }
-  const consumed = await prisma.adminLoginChallenge.deleteMany({
-    where: { tokenHash, codeHash: challenge.codeHash, attempts: { lt: maxLoginCodeAttempts }, expiresAt: { gt: now } }
+  return challenge;
+}
+
+async function recordAdminLoginChallengeFailure(token) {
+  if (!token) return;
+  await prisma.adminLoginChallenge.updateMany({
+    where: { tokenHash: sessionTokenHash(token), attempts: { lt: maxLoginCodeAttempts }, expiresAt: { gt: new Date() } },
+    data: { attempts: { increment: 1 } }
   });
-  return consumed.count === 1 ? { valid: true, accountId: challenge.accountId } : { valid: false };
+}
+
+async function consumeAdminTotpLoginChallenge(token, accountId, counter, recoveryCodeHash = '') {
+  if (typeof token !== 'string' || !token) return false;
+  const tokenHash = sessionTokenHash(token);
+  const now = new Date();
+  return prisma.$transaction(async transaction => {
+    const challenge = await transaction.adminLoginChallenge.findUnique({ where: { tokenHash } });
+    if (!challenge || challenge.expiresAt <= now || challenge.attempts >= maxLoginCodeAttempts || challenge.accountId !== accountId) return false;
+    const subjectKey = adminTotpSubjectKey(accountId);
+    const credential = await transaction.adminTotpCredential.findUnique({ where: { subjectKey } });
+    if (!credential?.enabledAt) return false;
+    const consumedCredential = recoveryCodeHash
+      ? await transaction.adminTotpCredential.updateMany({
+        where: { subjectKey, recoveryCodeHashes: { has: recoveryCodeHash } },
+        data: { recoveryCodeHashes: { set: credential.recoveryCodeHashes.filter(hash => hash !== recoveryCodeHash) } }
+      })
+      : await transaction.adminTotpCredential.updateMany({
+        where: { subjectKey, lastUsedCounter: { lt: BigInt(counter) }, enabledAt: { not: null } },
+        data: { lastUsedCounter: BigInt(counter) }
+      });
+    if (consumedCredential.count !== 1) return false;
+    const consumedChallenge = await transaction.adminLoginChallenge.deleteMany({
+      where: { tokenHash, attempts: { lt: maxLoginCodeAttempts }, expiresAt: { gt: now } }
+    });
+    return consumedChallenge.count === 1;
+  });
 }
 
 async function findAdminAccountByLogin(login) {
@@ -232,10 +312,21 @@ async function getAdminAccountById(id) {
 }
 
 async function listAdminAccounts() {
-  return prisma.adminAccount.findMany({
-    select: { id: true, name: true, email: true, permissions: true, createdAt: true },
+  const accounts = await prisma.adminAccount.findMany({
+    select: {
+      id: true,
+      name: true,
+      email: true,
+      permissions: true,
+      createdAt: true,
+      totpCredential: { select: { enabledAt: true } }
+    },
     orderBy: { createdAt: 'asc' }
   });
+  return accounts.map(({ totpCredential, ...account }) => ({
+    ...account,
+    authenticatorEnabled: Boolean(totpCredential?.enabledAt)
+  }));
 }
 
 async function createAdminAccount(payload) {
@@ -267,6 +358,16 @@ async function deleteAdminAccount(id) {
     if (error.code === 'P2025') return false;
     throw error;
   }
+}
+
+async function resetAdminAccountAuthenticator(id) {
+  return prisma.$transaction(async transaction => {
+    const account = await transaction.adminAccount.findUnique({ where: { id }, select: { id: true } });
+    if (!account) return false;
+    await transaction.adminTotpCredential.deleteMany({ where: { subjectKey: id } });
+    await transaction.adminSession.deleteMany({ where: { accountId: id } });
+    return true;
+  });
 }
 
 function validateEmployee(payload) {
@@ -702,4 +803,4 @@ async function getDashboard(period = 'daily') {
   };
 }
 
-module.exports = { addDocument, addEmployee, addTimeEntry, calculateOrderItems, createAdminAccount, createAdminLoginChallenge, createAdminSession, createProductGroup, deleteAdminAccount, deleteAdminLoginChallenge, deleteAdminSession, deleteEmployee, deleteProduct, deleteProductGroup, deletePromotion, findAdminAccountByLogin, getAdminAccountById, getAdminSession, getAddonPrice, getAddons, getCatalogProduct, getDashboard, getDocument, getEmployee, getMenuSettings, initializeAdminStore, listActivePromotions, listAdminAccounts, listEmployees, listOrders, listProducts, lookupOrders, recordOrder, saveProduct, savePromotion, scheduleVacation, updateEmployee, updateOrderPayment, updateOrderStatus, updateProductGroup, verifyAdminLoginChallenge };
+module.exports = { activateAdminTotpSetup, addDocument, addEmployee, addTimeEntry, calculateOrderItems, consumeAdminTotpLoginChallenge, createAdminAccount, createAdminLoginChallenge, createAdminSession, createAdminTotpSetup, createProductGroup, deleteAdminAccount, deleteAdminSession, deleteEmployee, deleteProduct, deleteProductGroup, deletePromotion, findAdminAccountByLogin, getAdminAccountById, getAdminLoginChallenge, getAdminTotpCredential, getAdminTotpSetup, getAdminSession, getAddonPrice, getAddons, getCatalogProduct, getDashboard, getDocument, getEmployee, getMenuSettings, initializeAdminStore, listActivePromotions, listAdminAccounts, listEmployees, listOrders, listProducts, lookupOrders, recordAdminLoginChallengeFailure, recordOrder, resetAdminAccountAuthenticator, saveProduct, savePromotion, scheduleVacation, updateEmployee, updateOrderPayment, updateOrderStatus, updateProductGroup };

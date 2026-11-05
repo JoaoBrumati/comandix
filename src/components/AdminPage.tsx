@@ -4,20 +4,36 @@ function AdminPage() {
       <section className="admin-login-view" id="admin-login-view">
         <span className="section-kicker">ÁREA RESTRITA</span>
         <h1>Administração</h1>
-        <p>Entre com seu usuário e senha. Enviaremos um código para o e-mail cadastrado.</p>
+        <p>Entre com seu usuário e senha. Depois, confirme o acesso pelo Microsoft Authenticator.</p>
         <form id="admin-login-form">
           <label>Usuário<input id="admin-username" autoComplete="username" defaultValue="admin" required /></label>
           <label>Senha do administrador<input id="admin-password" type="password" autoComplete="current-password" required /></label>
           <button type="submit">Entrar no painel <span>→</span></button>
         </form>
         <p className="admin-feedback" id="admin-login-feedback" role="alert" />
-        <form id="admin-email-code-form" hidden>
-          <p id="admin-email-code-description" />
-          <label>Código de segurança<input id="admin-email-code" type="text" inputMode="numeric" autoComplete="one-time-code" pattern="[0-9]{6}" maxLength={6} required /></label>
-          <button type="submit">Confirmar e acessar <span>→</span></button>
-          <button className="admin-secondary" id="admin-email-code-back" type="button">Voltar</button>
-          <p className="admin-feedback" id="admin-email-code-feedback" role="alert" />
+        <form id="admin-totp-setup-form" hidden>
+          <p id="admin-totp-setup-description">Escaneie o QR code no Microsoft Authenticator e informe o código de seis dígitos exibido.</p>
+          <img id="admin-totp-qr" alt="QR code para configurar o Microsoft Authenticator" />
+          <p>Se não puder escanear, informe esta chave no aplicativo:</p>
+          <code id="admin-totp-secret" />
+          <label>Código do aplicativo<input id="admin-totp-setup-code" type="text" inputMode="numeric" autoComplete="one-time-code" pattern="[0-9]{6}" maxLength={6} required /></label>
+          <button type="submit">Ativar e acessar <span>→</span></button>
+          <button className="admin-secondary" id="admin-totp-setup-back" type="button">Voltar</button>
+          <p className="admin-feedback" id="admin-totp-setup-feedback" role="alert" />
         </form>
+        <form id="admin-totp-code-form" hidden>
+          <p>Informe o código de seis dígitos do Microsoft Authenticator. Você também pode usar um código de recuperação.</p>
+          <label>Código de segurança<input id="admin-totp-code" type="text" inputMode="text" autoComplete="one-time-code" maxLength={19} required /></label>
+          <button type="submit">Confirmar e acessar <span>→</span></button>
+          <button className="admin-secondary" id="admin-totp-code-back" type="button">Voltar</button>
+          <p className="admin-feedback" id="admin-totp-code-feedback" role="alert" />
+        </form>
+        <section id="admin-recovery-codes" hidden>
+          <h2>Guarde seus códigos de recuperação</h2>
+          <p>Use cada código uma única vez caso não consiga acessar o autenticador. Eles não serão exibidos novamente.</p>
+          <ol id="admin-recovery-code-list" />
+          <button className="admin-primary" id="admin-recovery-continue" type="button">Guardei os códigos e continuar</button>
+        </section>
       </section>
 
       <section className="admin-dashboard-view" id="admin-dashboard-view" hidden>

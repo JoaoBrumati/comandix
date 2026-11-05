@@ -182,6 +182,43 @@ test('deletes persistent admin sessions without storing or querying the raw toke
   assert.equal(await adminStore.deleteAdminSession(''), undefined);
 });
 
+test('stores pending authenticator secrets encrypted and enables them after code verification', async t => {
+  const originalEncryptionKey = process.env.DATA_ENCRYPTION_KEY;
+  const originalFindUnique = prisma.adminTotpCredential.findUnique;
+  const originalCreate = prisma.adminTotpCredential.create;
+  const originalUpdateMany = prisma.adminTotpCredential.updateMany;
+  const token = 'random-authenticator-setup-token';
+  const secret = 'JBSWY3DPEHPK3PXP';
+  const expiresAt = new Date(Date.now() + 60_000);
+  let credential;
+  let activationArgs;
+  process.env.DATA_ENCRYPTION_KEY = require('node:crypto').randomBytes(32).toString('base64');
+  prisma.adminTotpCredential.findUnique = async () => credential || null;
+  prisma.adminTotpCredential.create = async args => {
+    credential = { accountId: null, ...args.data, enabledAt: null };
+    return credential;
+  };
+  prisma.adminTotpCredential.updateMany = async args => {
+    activationArgs = args;
+    return { count: 1 };
+  };
+  t.after(() => {
+    prisma.adminTotpCredential.findUnique = originalFindUnique;
+    prisma.adminTotpCredential.create = originalCreate;
+    prisma.adminTotpCredential.updateMany = originalUpdateMany;
+    if (originalEncryptionKey === undefined) delete process.env.DATA_ENCRYPTION_KEY;
+    else process.env.DATA_ENCRYPTION_KEY = originalEncryptionKey;
+  });
+
+  assert.deepEqual(await adminStore.createAdminTotpSetup(token, secret, expiresAt), { alreadyEnabled: false });
+  assert.notEqual(credential.secret, secret);
+  assert.notEqual(credential.setupTokenHash, token);
+  assert.deepEqual(await adminStore.getAdminTotpSetup(token), { accountId: null, secret });
+  assert.equal(await adminStore.activateAdminTotpSetup(token, 123, ['a'.repeat(64)]), true);
+  assert.equal(activationArgs.where.setupTokenHash, require('node:crypto').createHash('sha256').update(token).digest('hex'));
+  assert.equal(activationArgs.data.lastUsedCounter, 123n);
+});
+
 test('creates collaborator accounts with a hashed password and selected permissions', async t => {
   const originalCreate = prisma.adminAccount.create;
   const id = '536a94c8-e118-41d8-b512-6aa50d958931';
@@ -235,6 +272,46 @@ test('finds collaborator profiles by case-insensitive name or email', async t =>
   ]);
 });
 
+test('lists authenticator status without exposing the stored credential', async t => {
+  const originalFindMany = prisma.adminAccount.findMany;
+  prisma.adminAccount.findMany = async () => [{
+    id: '536a94c8-e118-41d8-b512-6aa50d958931',
+    name: 'Pessoa Colaboradora',
+    email: 'colaborador@example.com',
+    permissions: ['dashboard'],
+    createdAt: new Date(),
+    totpCredential: { enabledAt: new Date() }
+  }];
+  t.after(() => {
+    prisma.adminAccount.findMany = originalFindMany;
+  });
+
+  const [account] = await adminStore.listAdminAccounts();
+
+  assert.equal(account.authenticatorEnabled, true);
+  assert.equal('totpCredential' in account, false);
+  assert.equal('secret' in account, false);
+});
+
+test('resets collaborator authenticator and invalidates their sessions atomically', async t => {
+  const originalTransaction = prisma.$transaction;
+  const id = '536a94c8-e118-41d8-b512-6aa50d958931';
+  const calls = [];
+  prisma.$transaction = async operation => operation({
+    adminAccount: { findUnique: async args => { calls.push(['account', args]); return { id }; } },
+    adminTotpCredential: { deleteMany: async args => { calls.push(['totp', args]); return { count: 1 }; } },
+    adminSession: { deleteMany: async args => { calls.push(['sessions', args]); return { count: 1 }; } }
+  });
+  t.after(() => {
+    prisma.$transaction = originalTransaction;
+  });
+
+  assert.equal(await adminStore.resetAdminAccountAuthenticator(id), true);
+  assert.deepEqual(calls.map(([type]) => type), ['account', 'totp', 'sessions']);
+  assert.deepEqual(calls[1][1], { where: { subjectKey: id } });
+  assert.deepEqual(calls[2][1], { where: { accountId: id } });
+});
+
 test('rejects invalid collaborator credentials before writing an account', async t => {
   const originalCreate = prisma.adminAccount.create;
   let createCalled = false;
@@ -257,29 +334,25 @@ test('rejects invalid collaborator credentials before writing an account', async
   assert.equal(createCalled, false);
 });
 
-test('stores login challenges without the raw code and consumes each valid code once', async t => {
+test('stores login challenges with a hashed token and limits invalid attempts', async t => {
   const originalCreate = prisma.adminLoginChallenge.create;
   const originalFindUnique = prisma.adminLoginChallenge.findUnique;
   const originalDeleteMany = prisma.adminLoginChallenge.deleteMany;
   const originalUpdateMany = prisma.adminLoginChallenge.updateMany;
   const token = 'random-login-challenge-token';
-  const code = '482615';
   const expiresAt = new Date(Date.now() + 60_000);
-  let challenge;
+  let challenge = { attempts: 0 };
   let tokenHash;
-  let deleteArgs;
+  let failureArgs;
   prisma.adminLoginChallenge.create = async args => {
-    challenge = args.data;
+    challenge = { ...args.data, attempts: 0 };
     tokenHash = args.data.tokenHash;
     return args.data;
   };
+  prisma.adminLoginChallenge.deleteMany = async () => ({ count: 0 });
   prisma.adminLoginChallenge.findUnique = async () => challenge;
-  prisma.adminLoginChallenge.deleteMany = async args => {
-    deleteArgs = args;
-    challenge = null;
-    return { count: 1 };
-  };
-  prisma.adminLoginChallenge.updateMany = async () => {
+  prisma.adminLoginChallenge.updateMany = async args => {
+    failureArgs = args;
     challenge = { ...challenge, attempts: challenge.attempts + 1 };
     return { count: 1 };
   };
@@ -290,17 +363,14 @@ test('stores login challenges without the raw code and consumes each valid code 
     prisma.adminLoginChallenge.updateMany = originalUpdateMany;
   });
 
-  await adminStore.createAdminLoginChallenge(token, code, expiresAt, '536a94c8-e118-41d8-b512-6aa50d958931');
+  await adminStore.createAdminLoginChallenge(token, expiresAt, '536a94c8-e118-41d8-b512-6aa50d958931');
 
   assert.notEqual(challenge.tokenHash, token);
-  assert.notEqual(challenge.codeHash, code);
-  assert.equal('code' in challenge, false);
-  challenge.attempts = 0;
-  assert.deepEqual(await adminStore.verifyAdminLoginChallenge(token, '000000'), { valid: false });
+  assert.equal(challenge.codeHash, undefined);
+  assert.equal(challenge.expiresAt, expiresAt);
+  assert.equal((await adminStore.getAdminLoginChallenge(token)).accountId, '536a94c8-e118-41d8-b512-6aa50d958931');
+  await adminStore.recordAdminLoginChallengeFailure(token);
   assert.equal(challenge.attempts, 1);
-  const result = await adminStore.verifyAdminLoginChallenge(token, code);
-
-  assert.deepEqual(result, { valid: true, accountId: '536a94c8-e118-41d8-b512-6aa50d958931' });
-  assert.equal(deleteArgs.where.tokenHash, tokenHash);
-  assert.deepEqual(await adminStore.verifyAdminLoginChallenge(token, code), { valid: false });
+  assert.equal(failureArgs.where.tokenHash, tokenHash);
+  assert.equal(failureArgs.where.attempts.lt, 5);
 });

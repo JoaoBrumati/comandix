@@ -1599,19 +1599,23 @@
   margin-bottom: 28px;
 }
 
-#admin-email-code-form {
+#admin-totp-setup-form,
+#admin-totp-code-form {
   display: grid;
   gap: 12px;
 }
 
-#admin-email-code-form[hidden],
+#admin-totp-setup-form[hidden],
+#admin-totp-code-form[hidden],
+#admin-recovery-codes[hidden],
 #admin-login-form[hidden],
 #admin-account-management[hidden],
 #admin-security-log[hidden] {
   display: none !important;
 }
 
-#admin-email-code-form label,
+#admin-totp-setup-form label,
+#admin-totp-code-form label,
 .admin-account-form label {
   display: grid;
   gap: 7px;
@@ -1619,7 +1623,8 @@
   font-size: 11px;
 }
 
-#admin-email-code-form button[type="submit"] {
+#admin-totp-setup-form button[type="submit"],
+#admin-totp-code-form button[type="submit"] {
   min-height: 40px;
   padding: 0 14px;
   border-radius: 7px;
@@ -1629,7 +1634,8 @@
   font-weight: 700;
 }
 
-#admin-email-code-form input,
+#admin-totp-setup-form input,
+#admin-totp-code-form input,
 .admin-account-form input:not([type="checkbox"]) {
   box-sizing: border-box;
   width: 100%;
@@ -1642,18 +1648,68 @@
   font: inherit;
 }
 
-#admin-email-code-form input:focus,
+#admin-totp-setup-form input:focus,
+#admin-totp-code-form input:focus,
 .admin-account-form input:focus {
   border-color: var(--coral);
   outline: none;
 }
 
-#admin-email-code-description,
+#admin-totp-setup-form > p,
+#admin-totp-code-form > p,
 .admin-account-form small {
   margin: 0;
   color: var(--muted);
   font-size: 12px;
   line-height: 1.5;
+}
+
+#admin-totp-qr {
+  width: 220px;
+  max-width: 100%;
+  justify-self: center;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: white;
+}
+
+#admin-totp-secret {
+  overflow-wrap: anywhere;
+  padding: 10px 12px;
+  border-radius: 6px;
+  background: #f0f1ed;
+  font-size: 13px;
+  letter-spacing: .08em;
+}
+
+#admin-recovery-codes {
+  display: grid;
+  gap: 12px;
+}
+
+#admin-recovery-codes h2,
+#admin-recovery-codes p {
+  margin: 0;
+}
+
+#admin-recovery-codes p {
+  color: var(--muted);
+  font-size: 12px;
+  line-height: 1.5;
+}
+
+#admin-recovery-code-list {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 8px 18px;
+  padding: 14px 14px 14px 36px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+}
+
+#admin-recovery-code-list code {
+  font-size: 13px;
+  letter-spacing: .08em;
 }
 
 .admin-profile-card {
@@ -1740,6 +1796,13 @@
 .admin-account-row > div {
   display: grid;
   gap: 5px;
+}
+
+.admin-account-actions {
+  display: flex !important;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: 7px;
 }
 
 .promotion-manager {
