@@ -4,7 +4,21 @@ const path = require('path');
 const { z } = require('zod');
 const prisma = require('./db');
 const { decryptBuffer, decryptJson, encryptBuffer, encryptJson, hashCpf } = require('./encryption');
+const { hashPassword } = require('./security');
 const sessionTokenHash = token => crypto.createHash('sha256').update(token).digest('hex');
+const hashLoginCode = (token, code) => crypto.createHash('sha256').update(`${token}:${code}`).digest('hex');
+const maxLoginCodeAttempts = 5;
+const adminPermissions = ['dashboard', 'orders', 'menu'];
+const adminAccountSchema = z.object({
+  name: z.string().trim().min(2).max(100),
+  email: z.string().trim().email().max(254).transform(value => value.toLowerCase()),
+  password: z.string().min(12).max(128),
+  permissions: z.array(z.enum(adminPermissions)).min(1).max(adminPermissions.length)
+}).superRefine((account, context) => {
+  if (new Set(account.permissions).size !== account.permissions.length) {
+    context.addIssue({ code: 'custom', path: ['permissions'], message: 'Remova permissões duplicadas.' });
+  }
+});
 
 const employeeSchema = z.object({
   name: z.string().trim().min(5).max(100),
@@ -129,12 +143,13 @@ async function initializeAdminStore() {
   await prisma.$connect();
 }
 
-async function createAdminSession(token, csrfToken, expiresAt) {
+async function createAdminSession(token, csrfToken, expiresAt, accountId = null) {
   return prisma.adminSession.create({
     data: {
       tokenHash: sessionTokenHash(token),
       csrfToken,
-      expiresAt
+      expiresAt,
+      ...(accountId ? { accountId } : {})
     }
   });
 }
@@ -142,7 +157,7 @@ async function createAdminSession(token, csrfToken, expiresAt) {
 async function getAdminSession(token) {
   if (!token) return null;
   const tokenHash = sessionTokenHash(token);
-  const session = await prisma.adminSession.findUnique({ where: { tokenHash } });
+  const session = await prisma.adminSession.findUnique({ where: { tokenHash }, include: { account: true } });
   if (!session) return null;
   if (session.expiresAt <= new Date()) {
     await prisma.adminSession.deleteMany({ where: { tokenHash, expiresAt: { lte: new Date() } } });
@@ -154,6 +169,104 @@ async function getAdminSession(token) {
 async function deleteAdminSession(token) {
   if (!token) return;
   await prisma.adminSession.deleteMany({ where: { tokenHash: sessionTokenHash(token) } });
+}
+
+async function createAdminLoginChallenge(token, code, expiresAt, accountId = null) {
+  await prisma.adminLoginChallenge.deleteMany({ where: { expiresAt: { lte: new Date() } } });
+  return prisma.adminLoginChallenge.create({
+    data: {
+      tokenHash: sessionTokenHash(token),
+      codeHash: hashLoginCode(token, code),
+      expiresAt,
+      ...(accountId ? { accountId } : {})
+    }
+  });
+}
+
+async function deleteAdminLoginChallenge(token) {
+  if (!token) return;
+  await prisma.adminLoginChallenge.deleteMany({ where: { tokenHash: sessionTokenHash(token) } });
+}
+
+async function verifyAdminLoginChallenge(token, code) {
+  if (typeof token !== 'string' || !token || typeof code !== 'string' || !/^\d{6}$/.test(code)) return { valid: false };
+  const tokenHash = sessionTokenHash(token);
+  const challenge = await prisma.adminLoginChallenge.findUnique({ where: { tokenHash } });
+  if (!challenge) return { valid: false };
+  const now = new Date();
+  if (challenge.expiresAt <= now || challenge.attempts >= maxLoginCodeAttempts) {
+    await deleteAdminLoginChallenge(token);
+    return { valid: false };
+  }
+  const submittedHash = Buffer.from(hashLoginCode(token, code), 'hex');
+  const expectedHash = Buffer.from(challenge.codeHash, 'hex');
+  const codeMatches = submittedHash.length === expectedHash.length && crypto.timingSafeEqual(submittedHash, expectedHash);
+  if (!codeMatches) {
+    await prisma.adminLoginChallenge.updateMany({
+      where: { tokenHash, attempts: { lt: maxLoginCodeAttempts }, expiresAt: { gt: now } },
+      data: { attempts: { increment: 1 } }
+    });
+    return { valid: false };
+  }
+  const consumed = await prisma.adminLoginChallenge.deleteMany({
+    where: { tokenHash, codeHash: challenge.codeHash, attempts: { lt: maxLoginCodeAttempts }, expiresAt: { gt: now } }
+  });
+  return consumed.count === 1 ? { valid: true, accountId: challenge.accountId } : { valid: false };
+}
+
+async function findAdminAccountByLogin(login) {
+  const normalizedLogin = String(login || '').trim();
+  if (!normalizedLogin) return null;
+  return prisma.adminAccount.findFirst({
+    where: {
+      OR: [
+        { loginName: normalizedLogin.toLowerCase() },
+        { email: { equals: normalizedLogin, mode: 'insensitive' } }
+      ]
+    }
+  });
+}
+
+async function getAdminAccountById(id) {
+  return prisma.adminAccount.findUnique({ where: { id } });
+}
+
+async function listAdminAccounts() {
+  return prisma.adminAccount.findMany({
+    select: { id: true, name: true, email: true, permissions: true, createdAt: true },
+    orderBy: { createdAt: 'asc' }
+  });
+}
+
+async function createAdminAccount(payload) {
+  const parsed = adminAccountSchema.safeParse(payload);
+  if (!parsed.success) return { error: 'Confira o nome, e-mail, senha e permissões do colaborador.', details: parsed.error.flatten() };
+  const { password, ...accountData } = parsed.data;
+  const ownerName = (process.env.ADMIN_USER || 'admin').trim().toLowerCase();
+  const ownerEmail = (process.env.ADMIN_EMAIL || '').trim().toLowerCase();
+  if (accountData.name.toLowerCase() === ownerName || (ownerEmail && accountData.email === ownerEmail)) {
+    return { error: 'Este nome ou e-mail está reservado para o administrador principal.', status: 409 };
+  }
+  try {
+    const account = await prisma.adminAccount.create({
+      data: { ...accountData, loginName: accountData.name.toLowerCase(), passwordHash: hashPassword(password) },
+      select: { id: true, name: true, email: true, permissions: true, createdAt: true }
+    });
+    return { data: account };
+  } catch (error) {
+    if (error.code === 'P2002') return { error: 'Já existe um perfil cadastrado com este nome ou e-mail.', status: 409 };
+    throw error;
+  }
+}
+
+async function deleteAdminAccount(id) {
+  try {
+    await prisma.adminAccount.delete({ where: { id } });
+    return true;
+  } catch (error) {
+    if (error.code === 'P2025') return false;
+    throw error;
+  }
 }
 
 function validateEmployee(payload) {
@@ -589,4 +702,4 @@ async function getDashboard(period = 'daily') {
   };
 }
 
-module.exports = { addDocument, addEmployee, addTimeEntry, calculateOrderItems, createAdminSession, createProductGroup, deleteAdminSession, deleteEmployee, deleteProduct, deleteProductGroup, deletePromotion, getAdminSession, getAddonPrice, getAddons, getCatalogProduct, getDashboard, getDocument, getEmployee, getMenuSettings, initializeAdminStore, listActivePromotions, listEmployees, listOrders, listProducts, lookupOrders, recordOrder, saveProduct, savePromotion, scheduleVacation, updateEmployee, updateOrderPayment, updateOrderStatus, updateProductGroup };
+module.exports = { addDocument, addEmployee, addTimeEntry, calculateOrderItems, createAdminAccount, createAdminLoginChallenge, createAdminSession, createProductGroup, deleteAdminAccount, deleteAdminLoginChallenge, deleteAdminSession, deleteEmployee, deleteProduct, deleteProductGroup, deletePromotion, findAdminAccountByLogin, getAdminAccountById, getAdminSession, getAddonPrice, getAddons, getCatalogProduct, getDashboard, getDocument, getEmployee, getMenuSettings, initializeAdminStore, listActivePromotions, listAdminAccounts, listEmployees, listOrders, listProducts, lookupOrders, recordOrder, saveProduct, savePromotion, scheduleVacation, updateEmployee, updateOrderPayment, updateOrderStatus, updateProductGroup, verifyAdminLoginChallenge };

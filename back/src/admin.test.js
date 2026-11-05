@@ -2,6 +2,7 @@ const assert = require('node:assert/strict');
 const test = require('node:test');
 const prisma = require('./db');
 const adminStore = require('./admin');
+const { verifyPassword } = require('./security');
 
 test('listProducts is exported for the public storefront catalog', async t => {
   const originalProductFindMany = prisma.product.findMany;
@@ -156,7 +157,7 @@ test('loads persistent admin sessions by token hash and deletes expired sessions
   });
 
   assert.equal(await adminStore.getAdminSession(token), null);
-  assert.deepEqual(findArgs, { where: { tokenHash: expectedHash } });
+  assert.deepEqual(findArgs, { where: { tokenHash: expectedHash }, include: { account: true } });
   assert.deepEqual(deleteArgs.where.tokenHash, expectedHash);
   assert.ok(deleteArgs.where.expiresAt.lte instanceof Date);
   assert.deepEqual(await adminStore.getAdminSession(''), null);
@@ -179,4 +180,127 @@ test('deletes persistent admin sessions without storing or querying the raw toke
 
   assert.deepEqual(deleteArgs, { where: { tokenHash: expectedHash } });
   assert.equal(await adminStore.deleteAdminSession(''), undefined);
+});
+
+test('creates collaborator accounts with a hashed password and selected permissions', async t => {
+  const originalCreate = prisma.adminAccount.create;
+  const id = '536a94c8-e118-41d8-b512-6aa50d958931';
+  let createArgs;
+  prisma.adminAccount.create = async args => {
+    createArgs = args;
+    return {
+      id,
+      name: args.data.name,
+      email: args.data.email,
+      permissions: args.data.permissions,
+      createdAt: new Date()
+    };
+  };
+  t.after(() => {
+    prisma.adminAccount.create = originalCreate;
+  });
+
+  const result = await adminStore.createAdminAccount({
+    name: 'Pessoa Colaboradora',
+    email: 'COLABORADOR@example.com ',
+    password: 'senha-segura-123',
+    permissions: ['dashboard', 'menu']
+  });
+
+  assert.equal(createArgs.data.email, 'colaborador@example.com');
+  assert.equal(createArgs.data.loginName, 'pessoa colaboradora');
+  assert.notEqual(createArgs.data.passwordHash, 'senha-segura-123');
+  assert.equal(verifyPassword('senha-segura-123', createArgs.data.passwordHash), true);
+  assert.deepEqual(createArgs.data.permissions, ['dashboard', 'menu']);
+  assert.equal(result.data.id, id);
+  assert.equal('passwordHash' in result.data, false);
+});
+
+test('finds collaborator profiles by case-insensitive name or email', async t => {
+  const originalFindFirst = prisma.adminAccount.findFirst;
+  const account = { id: '536a94c8-e118-41d8-b512-6aa50d958931' };
+  let query;
+  prisma.adminAccount.findFirst = async args => {
+    query = args;
+    return account;
+  };
+  t.after(() => {
+    prisma.adminAccount.findFirst = originalFindFirst;
+  });
+
+  assert.equal(await adminStore.findAdminAccountByLogin('Pessoa Colaboradora'), account);
+  assert.deepEqual(query.where.OR, [
+    { loginName: 'pessoa colaboradora' },
+    { email: { equals: 'Pessoa Colaboradora', mode: 'insensitive' } }
+  ]);
+});
+
+test('rejects invalid collaborator credentials before writing an account', async t => {
+  const originalCreate = prisma.adminAccount.create;
+  let createCalled = false;
+  prisma.adminAccount.create = async () => {
+    createCalled = true;
+    throw new Error('Should not be called');
+  };
+  t.after(() => {
+    prisma.adminAccount.create = originalCreate;
+  });
+
+  const result = await adminStore.createAdminAccount({
+    name: 'Colaborador',
+    email: 'email-invalido',
+    password: 'curta',
+    permissions: ['dashboard', 'dashboard']
+  });
+
+  assert.match(result.error, /Confira o nome/);
+  assert.equal(createCalled, false);
+});
+
+test('stores login challenges without the raw code and consumes each valid code once', async t => {
+  const originalCreate = prisma.adminLoginChallenge.create;
+  const originalFindUnique = prisma.adminLoginChallenge.findUnique;
+  const originalDeleteMany = prisma.adminLoginChallenge.deleteMany;
+  const originalUpdateMany = prisma.adminLoginChallenge.updateMany;
+  const token = 'random-login-challenge-token';
+  const code = '482615';
+  const expiresAt = new Date(Date.now() + 60_000);
+  let challenge;
+  let tokenHash;
+  let deleteArgs;
+  prisma.adminLoginChallenge.create = async args => {
+    challenge = args.data;
+    tokenHash = args.data.tokenHash;
+    return args.data;
+  };
+  prisma.adminLoginChallenge.findUnique = async () => challenge;
+  prisma.adminLoginChallenge.deleteMany = async args => {
+    deleteArgs = args;
+    challenge = null;
+    return { count: 1 };
+  };
+  prisma.adminLoginChallenge.updateMany = async () => {
+    challenge = { ...challenge, attempts: challenge.attempts + 1 };
+    return { count: 1 };
+  };
+  t.after(() => {
+    prisma.adminLoginChallenge.create = originalCreate;
+    prisma.adminLoginChallenge.findUnique = originalFindUnique;
+    prisma.adminLoginChallenge.deleteMany = originalDeleteMany;
+    prisma.adminLoginChallenge.updateMany = originalUpdateMany;
+  });
+
+  await adminStore.createAdminLoginChallenge(token, code, expiresAt, '536a94c8-e118-41d8-b512-6aa50d958931');
+
+  assert.notEqual(challenge.tokenHash, token);
+  assert.notEqual(challenge.codeHash, code);
+  assert.equal('code' in challenge, false);
+  challenge.attempts = 0;
+  assert.deepEqual(await adminStore.verifyAdminLoginChallenge(token, '000000'), { valid: false });
+  assert.equal(challenge.attempts, 1);
+  const result = await adminStore.verifyAdminLoginChallenge(token, code);
+
+  assert.deepEqual(result, { valid: true, accountId: '536a94c8-e118-41d8-b512-6aa50d958931' });
+  assert.equal(deleteArgs.where.tokenHash, tokenHash);
+  assert.deepEqual(await adminStore.verifyAdminLoginChallenge(token, code), { valid: false });
 });

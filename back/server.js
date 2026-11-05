@@ -10,8 +10,9 @@ const rateLimit = require('express-rate-limit');
 const { lookupPublicAddress, quoteDelivery } = require('./src/delivery');
 const { orderSchema } = require('./src/validators');
 const adminStore = require('./src/admin');
+const { sendAdminLoginCode } = require('./src/admin-email');
 const { detectImageFormat, isAllowedImageMimeType } = require('./src/image-validation');
-const { hashPassword, verifyPassword, buildAdminCookie, buildCsrfCookie, clearAdminCookie, clearCsrfCookie, cookieValue, generateCsrfToken, getClientIp, recordFailedLogin, isBlockedIp, clearFailedLogin, logAdminAuditEvent, findRecentAuditLogs, isAllowedAdminIp, isAllowedAdminOrigin, verifyTotpCode, buildSecurityAlertPayload, validateProductionConfig } = require('./src/security');
+const { hashPassword, verifyPassword, buildAdminCookie, buildCsrfCookie, clearAdminCookie, clearCsrfCookie, cookieValue, generateCsrfToken, getClientIp, recordFailedLogin, isBlockedIp, clearFailedLogin, logAdminAuditEvent, findRecentAuditLogs, isAllowedAdminIp, isAllowedAdminOrigin, buildSecurityAlertPayload, validateProductionConfig } = require('./src/security');
 const { createCheckoutPreference, fetchMercadoPagoPayment, verifyWebhookSignature } = require('./src/payments');
 const { sendOrderNotification } = require('./src/whatsapp');
 
@@ -29,6 +30,7 @@ const buildDir = path.join(__dirname, '..', 'dist');
 const imageDir = path.join(__dirname, '..', 'img');
 const menuImageDir = path.join(imageDir, 'menu');
 const sessionDuration = 8 * 60 * 60 * 1000;
+const loginCodeDuration = 10 * 60 * 1000;
 let databaseReady = false;
 let databaseFailure = null;
 const uploadDocument = multer({
@@ -173,6 +175,44 @@ async function requireCsrf(request, response, next) {
   next();
 }
 
+function getAdminProfile(session) {
+  const account = session.account;
+  if (account) {
+    return {
+      id: account.id,
+      name: account.name,
+      email: account.email,
+      permissions: account.permissions,
+      isOwner: false
+    };
+  }
+  return {
+    name: process.env.ADMIN_USER || 'admin',
+    email: process.env.ADMIN_EMAIL || '',
+    permissions: ['dashboard', 'orders', 'menu'],
+    isOwner: true
+  };
+}
+
+function requireOwner(request, response, next) {
+  if (request.adminSession.accountId) return response.status(403).json({ error: 'Somente o administrador principal pode gerenciar perfis.' });
+  next();
+}
+
+function requireSectionPermission(request, response, next) {
+  const account = request.adminSession.account;
+  if (!account) return next();
+  const section = request.path.split('/')[1];
+  if (section === 'employees') return response.status(403).json({ error: 'Somente o administrador principal pode acessar os dados de funcionários.' });
+  if (section === 'security') return response.status(403).json({ error: 'Somente o administrador principal pode acessar os registros de segurança.' });
+  const permissionBySection = { dashboard: 'dashboard', orders: 'orders', menu: 'menu' };
+  const permission = permissionBySection[section];
+  if (permission && !account.permissions.includes(permission)) {
+    return response.status(403).json({ error: 'Seu perfil não tem permissão para acessar esta seção.' });
+  }
+  next();
+}
+
 app.post('/api/admin/login', requireSameOrigin, adminLoginLimiter, asyncRoute(async (request, response) => {
   const clientIp = getClientIp(request);
   if (!isAllowedAdminIp(clientIp, process.env.ADMIN_ALLOWED_IPS)) {
@@ -180,38 +220,69 @@ app.post('/api/admin/login', requireSameOrigin, adminLoginLimiter, asyncRoute(as
     return response.status(403).json({ error: 'Este IP não está autorizado para acessar o painel administrativo.' });
   }
   if (isBlockedIp(clientIp)) return response.status(403).json({ error: 'IP temporariamente bloqueado por muitas tentativas de login.' });
+  try { await adminStore.initializeAdminStore(); } catch { return response.status(503).json({ error: 'Não foi possível abrir o PostgreSQL. Confira DATABASE_URL e as migrations.' }); }
   const expectedPassword = process.env.ADMIN_PASSWORD_HASH || (process.env.ADMIN_PASSWORD ? hashPassword(process.env.ADMIN_PASSWORD) : '');
   if (!expectedPassword || expectedPassword.length < 32) return response.status(503).json({ error: 'Configure ADMIN_PASSWORD ou ADMIN_PASSWORD_HASH com uma senha forte no .env.' });
   const expectedUser = process.env.ADMIN_USER || 'admin';
   const username = typeof request.body?.username === 'string' ? request.body.username.trim() : '';
   const password = typeof request.body?.password === 'string' ? request.body.password : '';
-  const otpCode = typeof request.body?.otp === 'string' ? request.body.otp.replace(/\D/g, '') : '';
-  const secret = process.env.ADMIN_2FA_SECRET || '';
-  const credentialsAreValid = username.toLowerCase() === expectedUser.toLowerCase() && verifyPassword(password, expectedPassword);
-  if (!credentialsAreValid) {
+  const isOwner = username.toLowerCase() === expectedUser.toLowerCase() && verifyPassword(password, expectedPassword);
+  const account = isOwner ? null : await adminStore.findAdminAccountByLogin(username);
+  if (!isOwner && (!account || !verifyPassword(password, account.passwordHash))) {
     recordFailedLogin(clientIp);
     logAdminAuditEvent('admin_login_failed', request, { username, reason: 'invalid_credentials' });
     const alert = buildSecurityAlertPayload('admin_login_failed', clientIp, { username });
     if (process.env.ADMIN_ALERT_WEBHOOK) fetch(process.env.ADMIN_ALERT_WEBHOOK, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(alert) }).catch(() => {});
     return response.status(401).json({ error: 'Usuário ou senha administrativa incorretos.' });
   }
-  if (secret && !verifyTotpCode(secret, otpCode)) {
-    recordFailedLogin(clientIp);
-    logAdminAuditEvent('admin_login_failed', request, { username, reason: 'invalid_2fa' });
-    return response.status(401).json({ error: 'Código de autenticação em duas etapas inválido.' });
+  const email = account?.email || process.env.ADMIN_EMAIL || '';
+  if (!email) return response.status(503).json({ error: 'Configure ADMIN_EMAIL para receber os códigos de acesso do administrador principal.' });
+  const challengeToken = crypto.randomBytes(32).toString('base64url');
+  const code = String(crypto.randomInt(100000, 1000000));
+  await adminStore.createAdminLoginChallenge(challengeToken, code, new Date(Date.now() + loginCodeDuration), account?.id);
+  try {
+    await sendAdminLoginCode(email, code);
+  } catch (error) {
+    await adminStore.deleteAdminLoginChallenge(challengeToken);
+    console.error(`Não foi possível enviar o código de acesso por e-mail (${error.code || error.name}).`);
+    return response.status(503).json({ error: 'Não foi possível enviar o código de segurança. Confira a configuração de e-mail e tente novamente.' });
   }
+  logAdminAuditEvent('admin_login_code_sent', request, { username });
+  return response.json({
+    requiresEmailCode: true,
+    challengeToken,
+    email: email.replace(/^(.{1,2})[^@]*(@.*)$/, '$1***$2'),
+    expiresIn: loginCodeDuration
+  });
+}));
+
+app.post('/api/admin/login/verify', requireSameOrigin, adminLoginLimiter, asyncRoute(async (request, response) => {
+  const clientIp = getClientIp(request);
+  if (!isAllowedAdminIp(clientIp, process.env.ADMIN_ALLOWED_IPS)) {
+    return response.status(403).json({ error: 'Este IP não está autorizado para acessar o painel administrativo.' });
+  }
+  if (isBlockedIp(clientIp)) return response.status(403).json({ error: 'IP temporariamente bloqueado por muitas tentativas de login.' });
+  const challengeToken = typeof request.body?.challengeToken === 'string' ? request.body.challengeToken : '';
+  const code = typeof request.body?.code === 'string' ? request.body.code : '';
+  const challenge = await adminStore.verifyAdminLoginChallenge(challengeToken, code);
+  if (!challenge.valid) {
+    recordFailedLogin(clientIp);
+    logAdminAuditEvent('admin_login_failed', request, { reason: 'invalid_email_code' });
+    return response.status(401).json({ error: 'O código está incorreto ou expirou. Tente novamente.' });
+  }
+  const account = challenge.accountId ? await adminStore.getAdminAccountById(challenge.accountId) : null;
+  if (challenge.accountId && !account) return response.status(401).json({ error: 'Este perfil não está mais ativo.' });
   clearFailedLogin(clientIp);
-  try { await adminStore.initializeAdminStore(); } catch { return response.status(503).json({ error: 'Não foi possível abrir o PostgreSQL. Confira DATABASE_URL e as migrations.' }); }
   const sessionToken = crypto.randomBytes(32).toString('base64url');
   const csrfToken = generateCsrfToken();
-  await adminStore.createAdminSession(sessionToken, csrfToken, new Date(Date.now() + sessionDuration));
+  await adminStore.createAdminSession(sessionToken, csrfToken, new Date(Date.now() + sessionDuration), account?.id);
   response.setHeader('Set-Cookie', [buildAdminCookie(sessionToken), buildCsrfCookie(csrfToken)]);
-  logAdminAuditEvent('admin_login_success', request, { username, has2fa: Boolean(secret) });
-  return response.json({ authenticated: true, csrfToken, requiresTwoFactor: Boolean(secret) });
+  logAdminAuditEvent('admin_login_success', request, { username: account?.name || process.env.ADMIN_USER || 'admin' });
+  return response.json({ authenticated: true, csrfToken, profile: getAdminProfile({ account, accountId: account?.id || null }) });
 }));
 
 app.get('/api/admin/session', asyncRoute(requireAdmin), (request, response) => {
-  return response.json({ authenticated: true, csrfToken: request.adminSession.csrfToken });
+  return response.json({ authenticated: true, csrfToken: request.adminSession.csrfToken, profile: getAdminProfile(request.adminSession) });
 });
 app.delete('/api/admin/session', requireSameOrigin, asyncRoute(async (request, response) => {
   const clientIp = getClientIp(request);
@@ -229,7 +300,19 @@ adminApi.use((request, _response, next) => {
   next();
 });
 adminApi.use(asyncRoute(requireCsrf));
-adminApi.get('/security/logs', (_request, response) => response.json({ logs: findRecentAuditLogs(25) }));
+adminApi.use(requireSectionPermission);
+adminApi.get('/profile', (request, response) => response.json({ profile: getAdminProfile(request.adminSession) }));
+adminApi.get('/accounts', requireOwner, asyncRoute(async (_request, response) => response.json({ accounts: await adminStore.listAdminAccounts() })));
+adminApi.post('/accounts', requireOwner, asyncRoute(async (request, response) => {
+  const result = await adminStore.createAdminAccount(request.body);
+  if (result.error) return response.status(result.status || 400).json({ error: result.error, details: result.details });
+  return response.status(201).json(result.data);
+}));
+adminApi.delete('/accounts/:id', requireOwner, asyncRoute(async (request, response) => {
+  if (!await adminStore.deleteAdminAccount(request.params.id)) return response.status(404).json({ error: 'Perfil de colaborador não encontrado.' });
+  return response.status(204).end();
+}));
+adminApi.get('/security/logs', requireOwner, (_request, response) => response.json({ logs: findRecentAuditLogs(25) }));
 adminApi.get('/dashboard', asyncRoute(async (request, response) => response.json(await adminStore.getDashboard(request.query.period))));
 adminApi.get('/orders', asyncRoute(async (request, response) => response.json(await adminStore.listOrders(request.query.period))));
 adminApi.patch('/orders/:id/status', asyncRoute(async (request, response) => {

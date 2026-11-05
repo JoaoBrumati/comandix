@@ -40,6 +40,7 @@ Cadastre na Vercel, sem adicionar segredos ao Git:
 
 - `DATABASE_URL`, `DIRECT_URL` e `DATA_ENCRYPTION_KEY`; aplique as migrations no PostgreSQL antes do primeiro uso.
 - `ADMIN_PASSWORD` (mínimo de 12 caracteres) ou `ADMIN_PASSWORD_HASH`.
+- `ADMIN_EMAIL` e `SMTP_HOST`, `SMTP_PORT`, `SMTP_SECURE`, `SMTP_USER`, `SMTP_PASSWORD` e `SMTP_FROM` para enviar os códigos de acesso.
 - `PUBLIC_BASE_URL` com a URL HTTPS pública do site.
 - `CLIENT_ORIGIN` com a mesma origem pública do site, por exemplo `https://loja.exemplo.com`.
 
@@ -71,7 +72,9 @@ No painel do Mercado Pago, cadastre `https://<domínio-do-site>/api/payments/mer
 
 ## Administração
 
-O usuário administrativo é `admin` (`ADMIN_USER` no `.env`). Configure `ADMIN_PASSWORD` no mesmo arquivo com pelo menos 12 caracteres para liberar o acesso; a senha não possui valor padrão. A área permite dashboard diário, semanal, mensal e anual de pedidos e faturamento, cadastro e edição de colaboradores, programação de férias separada do cadastro, registro de ponto e anexos PDF/JPG/PNG de até 5 MB.
+O usuário administrativo é `admin` (`ADMIN_USER` no `.env`). Configure `ADMIN_PASSWORD` no mesmo arquivo com pelo menos 12 caracteres, `ADMIN_EMAIL` e as variáveis SMTP para liberar o acesso; a senha não possui valor padrão. Use `SMTP_SECURE=true` para conexão TLS direta (normalmente porta 465); em outros casos, a porta 587 usa STARTTLS. `SMTP_FROM` é opcional e, se vazio, o endereço `SMTP_USER` será usado como remetente. Após informar usuário e senha, o painel envia um código de seis dígitos ao e-mail cadastrado. O código expira em 10 minutos e é necessário para concluir o login. No painel, **Perfil** permite cadastrar colaboradores com nome, e-mail, senha e permissões individuais para Dashboard, Kanban e Cardápio; o nome ou e-mail e a senha cadastrada são usados para entrar. Apenas o administrador principal gerencia esses perfis.
+
+A área permite dashboard diário, semanal, mensal e anual de pedidos e faturamento, cadastro e edição de colaboradores, programação de férias separada do cadastro, registro de ponto e anexos PDF/JPG/PNG de até 5 MB.
 
 No Dashboard, o ADM filtra pedidos, faturamento ou ambos por período. Colaboradores e Cardápio têm atalhos próprios na sidebar. Na aba Cardápio, o ADM pode criar, renomear e excluir grupos, além de editar produtos, alterar imagem, descrição, categoria e preço, ocultar/exibir itens sem excluí-los e cadastrar promoções percentuais com início e fim opcionais. Em **Grupos**, marque “Mostrar na tela inicial” para exibir uma categoria na vitrine; grupos ocultos continuam disponíveis para configurar escolhas de combos. Para isso, cadastre os produtos candidatos em um grupo, edite o combo e selecione esse grupo em “Grupo de opções do combo”. Marque individualmente quais produtos poderão ser escolhidos no combo e defina o limite de 1 a 4 opções diferentes. Assim, se o grupo tiver seis produtos, é possível disponibilizar só cinco. As escolhas são incluídas no preço do combo e aparecem no carrinho, no pedido e nas notificações. Para evitar excluir produtos por acidente, um grupo só pode ser apagado quando estiver sem produtos e não estiver vinculado a combos; os grupos reservados para adicionais não podem ser renomeados nem excluídos. A lista mostra promoções ativas, agendadas e encerradas, com ações para editar ou apagar. A prévia mostra o preço final; a vitrine exibe o selo “Promoção” e o backend aplica o desconto apenas durante o período programado. Os dados operacionais ficam no PostgreSQL, e informações pessoais são cifradas pela aplicação.
 

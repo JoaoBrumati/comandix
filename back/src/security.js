@@ -58,44 +58,6 @@ function generateCsrfToken() {
   return crypto.randomBytes(32).toString('hex');
 }
 
-function base32ToBuffer(secret) {
-  const cleaned = String(secret || '').replace(/\s+/g, '').toUpperCase();
-  let bits = '';
-  for (const character of cleaned) {
-    const value = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ234567'.indexOf(character);
-    if (value < 0) continue;
-    bits += value.toString(2).padStart(5, '0');
-  }
-  const bytes = [];
-  for (let index = 0; index + 8 <= bits.length; index += 8) {
-    bytes.push(parseInt(bits.slice(index, index + 8), 2));
-  }
-  return Buffer.from(bytes);
-}
-
-function generateTotpCode(secret, now = Date.now()) {
-  const cleaned = String(secret || '').trim();
-  if (!cleaned) return '000000';
-  const counter = Math.floor(now / 30000);
-  const key = base32ToBuffer(cleaned);
-  const buffer = Buffer.alloc(8);
-  let value = counter;
-  for (let index = 7; index >= 0; index -= 1) {
-    buffer[index] = value & 0xff;
-    value = Math.floor(value / 256);
-  }
-  const hmac = crypto.createHmac('sha1', key).update(buffer).digest();
-  const offset = hmac[hmac.length - 1] & 0xf;
-  const binary = ((hmac[offset] & 0x7f) << 24) | ((hmac[offset + 1] & 0xff) << 16) | ((hmac[offset + 2] & 0xff) << 8) | (hmac[offset + 3] & 0xff);
-  return String(binary % 1000000).padStart(6, '0');
-}
-
-function verifyTotpCode(secret, code, now = Date.now()) {
-  const normalized = String(code || '').replace(/\D/g, '');
-  if (!/\d{6}/.test(normalized)) return false;
-  return [0, -30000, 30000].some(offset => generateTotpCode(secret, now + offset) === normalized);
-}
-
 function normalizeIp(value = '') {
   const raw = String(value || '').split(',')[0].trim();
   return raw.replace(/^::ffff:/, '');
@@ -255,6 +217,22 @@ function validateProductionConfig(env = process.env) {
       errors.push('ADMIN_PASSWORD_HASH muito curta para produção.');
     }
 
+    if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(env.ADMIN_EMAIL || '')) {
+      errors.push('ADMIN_EMAIL válido obrigatório em produção para os códigos de acesso.');
+    }
+
+    if (!env.SMTP_HOST || !env.SMTP_USER || !env.SMTP_PASSWORD) {
+      errors.push('SMTP_HOST, SMTP_USER e SMTP_PASSWORD obrigatórios em produção para enviar códigos de acesso.');
+    }
+
+    const smtpPort = Number(env.SMTP_PORT || 587);
+    if (!Number.isInteger(smtpPort) || smtpPort < 1 || smtpPort > 65535) {
+      errors.push('SMTP_PORT inválida em produção.');
+    }
+    if (env.SMTP_SECURE && !['true', 'false'].includes(env.SMTP_SECURE)) {
+      errors.push('SMTP_SECURE deve ser true ou false.');
+    }
+
     if (!env.DATABASE_URL) {
       errors.push('DATABASE_URL obrigatório em produção.');
     }
@@ -276,8 +254,6 @@ module.exports = {
   clearCsrfCookie,
   cookieValue,
   generateCsrfToken,
-  generateTotpCode,
-  verifyTotpCode,
   normalizeIp,
   getClientIp,
   recordFailedLogin,

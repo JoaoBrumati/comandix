@@ -4,14 +4,20 @@ function AdminPage() {
       <section className="admin-login-view" id="admin-login-view">
         <span className="section-kicker">ÁREA RESTRITA</span>
         <h1>Administração</h1>
-        <p>Acesse com a senha administrativa configurada no servidor.</p>
+        <p>Entre com seu usuário e senha. Enviaremos um código para o e-mail cadastrado.</p>
         <form id="admin-login-form">
           <label>Usuário<input id="admin-username" autoComplete="username" defaultValue="admin" required /></label>
           <label>Senha do administrador<input id="admin-password" type="password" autoComplete="current-password" required /></label>
-          <label>Código 2FA (opcional)<input id="admin-otp" type="text" inputMode="numeric" autoComplete="one-time-code" placeholder="123456" maxLength={6} /></label>
           <button type="submit">Entrar no painel <span>→</span></button>
         </form>
         <p className="admin-feedback" id="admin-login-feedback" role="alert" />
+        <form id="admin-email-code-form" hidden>
+          <p id="admin-email-code-description" />
+          <label>Código de segurança<input id="admin-email-code" type="text" inputMode="numeric" autoComplete="one-time-code" pattern="[0-9]{6}" maxLength={6} required /></label>
+          <button type="submit">Confirmar e acessar <span>→</span></button>
+          <button className="admin-secondary" id="admin-email-code-back" type="button">Voltar</button>
+          <p className="admin-feedback" id="admin-email-code-feedback" role="alert" />
+        </form>
       </section>
 
       <section className="admin-dashboard-view" id="admin-dashboard-view" hidden>
@@ -161,6 +167,34 @@ function AdminPage() {
             </div>
           </form>
           <div className="menu-product-list" id="menu-product-list" />
+        </section>
+        <section className="admin-panel" id="admin-profile-panel">
+          <div className="admin-section-heading">
+            <div>
+              <span className="section-kicker">ACESSO ADMINISTRATIVO</span>
+              <h2>Perfil</h2>
+              <p>Consulte seus dados e gerencie o acesso dos colaboradores.</p>
+            </div>
+          </div>
+          <section className="admin-profile-card" id="admin-profile-details" aria-live="polite" />
+          <section className="admin-account-management" id="admin-account-management">
+            <div className="admin-section-heading">
+              <div><h2>Cadastrar colaborador</h2><p>O colaborador entrará usando o nome ou e-mail e a senha cadastrada.</p></div>
+            </div>
+            <form className="admin-account-form" id="admin-account-form">
+              <label>Nome do perfil<input id="admin-account-name" name="name" autoComplete="off" minLength={2} maxLength={100} required /></label>
+              <label>E-mail<input id="admin-account-email" name="email" type="email" autoComplete="email" maxLength={254} required /></label>
+              <label>Senha de acesso<input id="admin-account-password" name="password" type="password" autoComplete="new-password" minLength={12} maxLength={128} required /><small>Use pelo menos 12 caracteres.</small></label>
+              <fieldset className="admin-account-permissions">
+                <legend>Permissões de acesso</legend>
+                <label><input type="checkbox" name="permission" value="dashboard" /> Dashboard</label>
+                <label><input type="checkbox" name="permission" value="orders" /> Kanban</label>
+                <label><input type="checkbox" name="permission" value="menu" /> Cardápio</label>
+              </fieldset>
+              <button className="admin-primary" type="submit">Cadastrar colaborador</button>
+            </form>
+            <div className="admin-account-list" id="admin-account-list" />
+          </section>
         </section>
       </section>
     </div>

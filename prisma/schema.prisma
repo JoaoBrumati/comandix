@@ -65,12 +65,42 @@ model MedicalDocument {
 }
 
 model AdminSession {
-  tokenHash String   @id @db.Char(64)
-  csrfToken String   @db.Char(64)
+  tokenHash String       @id @db.Char(64)
+  csrfToken String       @db.Char(64)
+  accountId String?      @db.Uuid
   expiresAt DateTime
-  createdAt DateTime @default(now())
+  createdAt DateTime     @default(now())
+  account   AdminAccount? @relation(fields: [accountId], references: [id], onDelete: Cascade)
 
   @@index([expiresAt])
+  @@index([accountId])
+}
+
+model AdminAccount {
+  id           String         @id @default(uuid()) @db.Uuid
+  name         String         @db.VarChar(100)
+  loginName    String         @unique @db.VarChar(100)
+  email        String         @unique @db.VarChar(254)
+  passwordHash String         @db.VarChar(160)
+  permissions  String[]       @default([])
+  createdAt    DateTime       @default(now())
+  sessions     AdminSession[]
+  challenges   AdminLoginChallenge[]
+
+  @@index([createdAt])
+}
+
+model AdminLoginChallenge {
+  tokenHash String        @id @db.Char(64)
+  codeHash  String        @db.Char(64)
+  accountId String?       @db.Uuid
+  expiresAt DateTime
+  attempts  Int           @default(0)
+  createdAt DateTime      @default(now())
+  account   AdminAccount? @relation(fields: [accountId], references: [id], onDelete: Cascade)
+
+  @@index([expiresAt])
+  @@index([accountId])
 }
 
 model Product {

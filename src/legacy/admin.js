@@ -1,9 +1,13 @@
 const adminLoginView = document.querySelector('#admin-login-view');
 const adminDashboardView = document.querySelector('#admin-dashboard-view');
 const adminLoginFeedback = document.querySelector('#admin-login-feedback');
+const adminEmailCodeForm = document.querySelector('#admin-email-code-form');
+const adminEmailCodeFeedback = document.querySelector('#admin-email-code-feedback');
 const employeeForm = document.querySelector('#employee-form');
 let selectedPeriod = 'daily';
 let requestedAdminSection = 'dashboard';
+let currentAdminProfile = null;
+let pendingLoginChallenge = '';
 let dashboardOrders = [];
 let adminMenuProducts = [];
 let adminMenuGroups = [];
@@ -90,26 +94,37 @@ async function adminRequest(url, options = {}) {
 
 async function loadAdminSession() {
   try {
-    await adminRequest('/api/admin/session');
+    const session = await adminRequest('/api/admin/session');
     history.replaceState(null, '', `/admin#admin/${requestedAdminSection}`);
-    await showAdminDashboard();
+    await showAdminDashboard(session.profile);
   } catch {
     if (window.location.pathname !== '/login') history.replaceState(null, '', '/login');
     adminLoginView.hidden = false;
     adminDashboardView.hidden = true;
+    document.querySelector('#admin-profile-nav').hidden = true;
     document.querySelector('#admin-subnav').hidden = true;
   }
 }
 
-async function showAdminDashboard() {
+async function showAdminDashboard(profile = currentAdminProfile) {
   adminLoginView.hidden = true;
   adminDashboardView.hidden = false;
   document.querySelector('#admin-subnav').hidden = false;
+  document.querySelector('#admin-profile-nav').hidden = false;
+  currentAdminProfile = profile;
+  document.querySelectorAll('[data-admin-section]').forEach(button => {
+    const section = button.dataset.adminSection;
+    button.hidden = section !== 'profile' && !currentAdminProfile?.permissions.includes(section);
+  });
+  if (requestedAdminSection !== 'profile' && !currentAdminProfile?.permissions.includes(requestedAdminSection)) {
+    requestedAdminSection = 'profile';
+    history.replaceState(null, '', `/admin#admin/${requestedAdminSection}`);
+  }
   await showAdminSection(requestedAdminSection);
 }
 
 async function showAdminSection(section) {
-  if (!['dashboard', 'orders', 'menu'].includes(section)) section = 'dashboard';
+  if (!['dashboard', 'orders', 'menu', 'profile'].includes(section)) section = 'dashboard';
   requestedAdminSection = section;
   clearInterval(kanbanRefreshTimer);
   kanbanRefreshTimer = null;
@@ -121,10 +136,11 @@ async function showAdminSection(section) {
     kanbanRefreshTimer = setInterval(() => loadKanban().catch(() => {}), 5000);
   }
   if (section === 'menu') await loadAdminMenu();
+  if (section === 'profile') await loadAdminProfile();
 }
 
 async function navigateAdminSection(section) {
-  const normalized = ['dashboard', 'orders', 'menu'].includes(section) ? section : 'dashboard';
+  const normalized = ['dashboard', 'orders', 'menu', 'profile'].includes(section) ? section : 'dashboard';
   requestedAdminSection = normalized;
   document.querySelectorAll('.page-view').forEach(view => view.classList.toggle('active', view.id === 'admin-page'));
   document.querySelectorAll('[data-page]').forEach(link => link.classList.toggle('active', link.dataset.page === 'admin'));
@@ -133,16 +149,84 @@ async function navigateAdminSection(section) {
   document.querySelector('#mobile-menu').setAttribute('aria-expanded', 'false');
   history.replaceState(null, '', `/admin#admin/${normalized}`);
   try {
-    await adminRequest('/api/admin/session');
-    await showAdminSection(normalized);
+    const session = await adminRequest('/api/admin/session');
+    currentAdminProfile = session.profile;
+    const allowedSection = normalized === 'profile' || currentAdminProfile.permissions.includes(normalized);
+    const targetSection = allowedSection ? normalized : 'profile';
+    requestedAdminSection = targetSection;
+    history.replaceState(null, '', `/admin#admin/${targetSection}`);
+    await showAdminSection(targetSection);
   } catch (error) {
     if (error.status === 401) {
       history.replaceState(null, '', '/login');
       adminLoginView.hidden = false;
       adminDashboardView.hidden = true;
+      document.querySelector('#admin-profile-nav').hidden = true;
       document.querySelector('#admin-subnav').hidden = true;
       return;
     }
+    showAdminToast(error.message);
+  }
+}
+
+async function loadAdminProfile() {
+  const { profile } = await adminRequest('/api/admin/profile');
+  currentAdminProfile = profile;
+  const permissions = profile.permissions.map(permission => ({ dashboard: 'Dashboard', orders: 'Kanban', menu: 'Cardápio' })[permission]).join(', ');
+  document.querySelector('#admin-profile-details').innerHTML = `
+    <div><span>Nome do perfil</span><strong>${escapeHtml(profile.name)}</strong></div>
+    <div><span>E-mail</span><strong>${escapeHtml(profile.email || 'Não informado')}</strong></div>
+    <div><span>Acessos deste perfil</span><strong>${profile.isOwner ? 'Administrador principal' : escapeHtml(permissions || 'Nenhuma seção liberada')}</strong></div>
+  `;
+  const management = document.querySelector('#admin-account-management');
+  management.hidden = !profile.isOwner;
+  if (!profile.isOwner) return;
+  await loadAdminAccounts();
+}
+
+async function loadAdminAccounts() {
+  const { accounts } = await adminRequest('/api/admin/accounts');
+  const permissionNames = { dashboard: 'Dashboard', orders: 'Kanban', menu: 'Cardápio' };
+  document.querySelector('#admin-account-list').innerHTML = accounts.length
+    ? accounts.map(account => `<article class="admin-account-row">
+        <div><strong>${escapeHtml(account.name)}</strong><span>${escapeHtml(account.email)}</span><small>Acessos: ${escapeHtml(account.permissions.map(permission => permissionNames[permission]).join(', '))}</small></div>
+        <button class="admin-secondary" type="button" data-delete-admin-account="${escapeHtml(account.id)}">Remover acesso</button>
+      </article>`).join('')
+    : '<p class="admin-empty">Nenhum colaborador cadastrado.</p>';
+}
+
+async function submitAdminAccount(event) {
+  event.preventDefault();
+  const form = event.currentTarget;
+  const permissions = [...form.querySelectorAll('input[name="permission"]:checked')].map(input => input.value);
+  if (!permissions.length) {
+    showAdminToast('Selecione pelo menos uma permissão para o colaborador.');
+    return;
+  }
+  const payload = {
+    name: document.querySelector('#admin-account-name').value.trim(),
+    email: document.querySelector('#admin-account-email').value.trim(),
+    password: document.querySelector('#admin-account-password').value,
+    permissions
+  };
+  try {
+    await adminRequest('/api/admin/accounts', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload) });
+    form.reset();
+    await loadAdminAccounts();
+    showAdminToast('Perfil do colaborador cadastrado.');
+  } catch (error) {
+    showAdminToast(error.message);
+  }
+}
+
+async function handleAdminAccountAction(event) {
+  const button = event.target.closest('[data-delete-admin-account]');
+  if (!button || !window.confirm('Remover o acesso deste colaborador?')) return;
+  try {
+    await adminRequest(`/api/admin/accounts/${encodeURIComponent(button.dataset.deleteAdminAccount)}`, { method: 'DELETE' });
+    await loadAdminAccounts();
+    showAdminToast('Acesso do colaborador removido.');
+  } catch (error) {
     showAdminToast(error.message);
   }
 }
@@ -161,19 +245,18 @@ async function loadDashboard() {
   const data = await adminRequest(`/api/admin/dashboard?period=${selectedPeriod}`);
   dashboardOrders = data.orders;
   const soldItems = data.orders.reduce((total, order) => total + order.items.reduce((orderTotal, item) => orderTotal + item.quantity, 0), 0);
-  const averageOrder = data.orderCount ? data.revenue / data.orderCount : 0;
   const metrics = [
     ['Total de pedidos', data.orderCount, 'Pedidos no período'],
     ['Faturamento', formatCurrency(data.revenue), `${formatCurrency(data.deliveryRevenue)} em taxas de entrega`],
-    ['Itens vendidos', soldItems, 'Quantidade nos pedidos recentes'],
-    ['Ticket médio', formatCurrency(averageOrder), 'Faturamento ÷ total de pedidos']
+    ['Itens vendidos', soldItems, 'Quantidade nos pedidos recentes']
   ];
   document.querySelector('#admin-metrics').innerHTML = metrics.map(([title, value, note], index) => `<article class="admin-metric" data-dashboard-group="${index === 0 || index === 2 ? 'orders' : 'revenue'}"><span>${title}</span><strong>${value}</strong><small>${note}</small></article>`).join('');
   document.querySelector('#admin-orders-summary').innerHTML = data.orders.length ? data.orders.map(order => `<article class="admin-order-row"><div><strong>${escapeHtml(order.items.map(item => `${item.quantity}x ${item.name}${item.options?.length ? ` (Escolhas: ${item.options.join(', ')})` : ''}${item.addons?.length ? ` (Adicionais: ${item.addons.join(', ')})` : ''}`).join(', '))}</strong><small>${formatDateTime(order.createdAt)} · ${escapeHtml(paymentMethodLabel(order.payment))}</small></div><span>Itens ${formatCurrency(order.subtotal)}<small>Entrega ${formatCurrency(order.deliveryFee)}</small></span><b>${formatCurrency(order.total)}</b></article>`).join('') : '<div class="admin-empty">Ainda não há pedidos registrados neste período.</div>';
   renderDashboardRevenue(data.orders);
   renderDashboardStatuses(data.orders, data.orderCount);
   renderDashboardProducts(data.orders);
-  await loadSecurityLogs();
+  document.querySelector('#admin-security-log').hidden = !currentAdminProfile?.isOwner;
+  if (currentAdminProfile?.isOwner) await loadSecurityLogs();
   applyDashboardFilter();
 }
 
@@ -750,13 +833,43 @@ document.querySelector('#admin-login-form').addEventListener('submit', async eve
   event.preventDefault();
   adminLoginFeedback.textContent = '';
   try {
-    const payload = { username: document.querySelector('#admin-username').value.trim(), password: document.querySelector('#admin-password').value, otp: document.querySelector('#admin-otp')?.value || '' };
-    await adminRequest('/api/admin/login', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload) });
+    const payload = { username: document.querySelector('#admin-username').value.trim(), password: document.querySelector('#admin-password').value };
+    const result = await adminRequest('/api/admin/login', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload) });
     document.querySelector('#admin-password').value = '';
-    document.querySelector('#admin-otp').value = '';
-    history.replaceState(null, '', `/admin#admin/${requestedAdminSection}`);
-    await showAdminDashboard();
+    pendingLoginChallenge = result.challengeToken;
+    document.querySelector('#admin-login-form').hidden = true;
+    document.querySelector('#admin-email-code-description').textContent = `Enviamos um código de seis dígitos para ${result.email}. O código expira em 10 minutos.`;
+    document.querySelector('#admin-email-code').value = '';
+    adminEmailCodeFeedback.textContent = '';
+    adminEmailCodeForm.hidden = false;
+    document.querySelector('#admin-email-code').focus();
   } catch (error) { adminLoginFeedback.textContent = error.message; }
+});
+
+adminEmailCodeForm.addEventListener('submit', async event => {
+  event.preventDefault();
+  adminEmailCodeFeedback.textContent = '';
+  try {
+    const result = await adminRequest('/api/admin/login/verify', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ challengeToken: pendingLoginChallenge, code: document.querySelector('#admin-email-code').value.trim() })
+    });
+    pendingLoginChallenge = '';
+    adminEmailCodeForm.hidden = true;
+    history.replaceState(null, '', `/admin#admin/${requestedAdminSection}`);
+    await showAdminDashboard(result.profile);
+  } catch (error) {
+    adminEmailCodeFeedback.textContent = error.message;
+  }
+});
+
+document.querySelector('#admin-email-code-back').addEventListener('click', () => {
+  pendingLoginChallenge = '';
+  adminEmailCodeForm.reset();
+  adminEmailCodeForm.hidden = true;
+  document.querySelector('#admin-login-form').hidden = false;
+  adminEmailCodeFeedback.textContent = '';
 });
 
 document.querySelector('#admin-logout').addEventListener('click', async () => {
@@ -764,6 +877,9 @@ document.querySelector('#admin-logout').addEventListener('click', async () => {
     history.replaceState(null, '', '/login');
     adminDashboardView.hidden = true;
     adminLoginView.hidden = false;
+    adminEmailCodeForm.hidden = true;
+    document.querySelector('#admin-login-form').hidden = false;
+    document.querySelector('#admin-profile-nav').hidden = true;
     document.querySelector('#admin-subnav').hidden = true;
   }
 });
@@ -843,6 +959,8 @@ document.querySelector('#promotion-form')?.addEventListener('submit', submitProm
 document.querySelector('#promotion-product')?.addEventListener('change', updatePromotionPreview);
 document.querySelector('#promotion-percent')?.addEventListener('input', updatePromotionPreview);
 document.querySelector('#dashboard-filter')?.addEventListener('change', applyDashboardFilter);
+document.querySelector('#admin-account-form')?.addEventListener('submit', submitAdminAccount);
+document.querySelector('#admin-account-list')?.addEventListener('click', handleAdminAccountAction);
 document.querySelector('#refresh-kanban')?.addEventListener('click', () => loadKanban().catch(error => showAdminToast(error.message)));
 document.querySelectorAll('[data-kanban-period]').forEach(button => {
   button.classList.toggle('active', button.dataset.kanbanPeriod === kanbanPeriod);
@@ -897,7 +1015,7 @@ document.querySelector('.sidebar').addEventListener('click', event => {
 });
 updateWhatsAppLink();
 const adminPath = window.location.pathname.replace(/\/+$/, '') || '/';
-const adminRoute = window.location.hash.match(/^#admin(?:\/(dashboard|orders|menu))?$/);
+const adminRoute = window.location.hash.match(/^#admin(?:\/(dashboard|orders|menu|profile))?$/);
 if (adminPath === '/login' || adminPath === '/admin') {
   requestedAdminSection = adminRoute?.[1] || 'dashboard';
   loadAdminSession();

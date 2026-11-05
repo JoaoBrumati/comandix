@@ -29,6 +29,12 @@ function Sidebar({ admin = false }: SidebarProps) {
                 <span>Cardápio</span>
               </button>
             </nav>
+            <nav className="admin-subnav" id="admin-profile-nav" aria-label="Perfil administrativo" hidden>
+              <button type="button" data-admin-section="profile">
+                <img className="admin-subnav-icon" src="/img/icons/administrador.svg" alt="" aria-hidden="true" />
+                <span>Perfil</span>
+              </button>
+            </nav>
             <a href="/" className="nav-item">
               <img className="nav-icon" src="/img/icons/casa.svg" alt="" aria-hidden="true" />
               <span>Voltar para a loja</span>

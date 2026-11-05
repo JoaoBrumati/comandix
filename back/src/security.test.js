@@ -1,6 +1,6 @@
 const test = require('node:test');
 const assert = require('node:assert/strict');
-const { hashPassword, verifyPassword, buildAdminCookie, buildCsrfCookie, recordFailedLogin, isBlockedIp, logAdminAuditEvent, generateTotpCode, verifyTotpCode, getClientIp, isAllowedAdminIp, isAllowedAdminOrigin, buildSecurityAlertPayload, validateProductionConfig } = require('./security');
+const { hashPassword, verifyPassword, buildAdminCookie, buildCsrfCookie, recordFailedLogin, isBlockedIp, logAdminAuditEvent, getClientIp, isAllowedAdminIp, isAllowedAdminOrigin, buildSecurityAlertPayload, validateProductionConfig } = require('./security');
 
 test('hashPassword creates a verifiable password hash', async () => {
   const password = 'SenhaForte!123';
@@ -66,15 +66,6 @@ test('logAdminAuditEvent writes to runtime logs on Vercel instead of the read-on
   }
 });
 
-test('generateTotpCode and verifyTotpCode work together for 2FA', () => {
-  const secret = 'JBSWY3DPEHPK3PXP';
-  const code = generateTotpCode(secret);
-
-  assert.match(code, /^\d{6}$/);
-  assert.equal(verifyTotpCode(secret, code), true);
-  assert.equal(verifyTotpCode(secret, '000000'), false);
-});
-
 test('isAllowedAdminIp respects whitelist configuration', () => {
   assert.equal(isAllowedAdminIp('203.0.113.10', '203.0.113.10,10.0.0.1'), true);
   assert.equal(isAllowedAdminIp('198.51.100.55', '203.0.113.10,10.0.0.1'), false);
@@ -118,7 +109,12 @@ test('validateProductionConfig blocks insecure production settings', () => {
     NODE_ENV: 'production',
     PUBLIC_BASE_URL: 'http://example.com',
     ADMIN_PASSWORD_HASH: 'short',
-    ADMIN_2FA_SECRET: ''
+    ADMIN_EMAIL: 'admin@example.com',
+    SMTP_HOST: 'smtp.example.com',
+    SMTP_PORT: '587',
+    SMTP_USER: 'admin@example.com',
+    SMTP_PASSWORD: 'smtp-password',
+    SMTP_FROM: 'admin@example.com'
   };
 
   const result = validateProductionConfig(env);
