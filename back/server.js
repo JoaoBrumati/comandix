@@ -19,7 +19,6 @@ const { sendOrderNotification } = require('./src/whatsapp');
 const productionConfig = validateProductionConfig(process.env);
 if (process.env.NODE_ENV === 'production' && !productionConfig.ok) {
   console.error('Configuração de produção inválida:', productionConfig.errors.join(' | '));
-  process.exit(1);
 }
 
 const app = express();
@@ -106,6 +105,15 @@ const adminLoginLimiter = rateLimit({
   message: { error: 'Muitas tentativas de login. Tente novamente em alguns minutos.' }
 });
 app.use(globalRateLimiter);
+app.use('/api', (_request, response, next) => {
+  if (process.env.NODE_ENV === 'production' && !productionConfig.ok) {
+    return response.status(503).json({
+      error: 'A API está sem configuração obrigatória para produção.',
+      details: productionConfig.errors
+    });
+  }
+  next();
+});
 app.use(['/api/catalog', '/api/promotion', '/api/admin', '/api/orders', '/api/payments'], (_request, response, next) => {
   if (!databaseReady) return response.status(503).json({ error: getDatabaseUnavailableMessage() });
   next();

@@ -123,3 +123,16 @@ test('validateProductionConfig blocks insecure production settings', () => {
   assert.ok(Array.isArray(result.errors));
   assert.ok(result.errors.some(error => error.includes('HTTPS')));
 });
+
+test('allows production APIs to start when optional email delivery is not configured', () => {
+  const result = validateProductionConfig({
+    NODE_ENV: 'production',
+    PUBLIC_BASE_URL: 'https://example.com',
+    ADMIN_PASSWORD: 'senha-forte-com-12',
+    DATABASE_URL: 'postgresql://example',
+    DATA_ENCRYPTION_KEY: 'key'
+  });
+
+  assert.equal(result.ok, true);
+  assert.deepEqual(result.errors, []);
+});

@@ -217,22 +217,6 @@ function validateProductionConfig(env = process.env) {
       errors.push('ADMIN_PASSWORD_HASH muito curta para produção.');
     }
 
-    if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(env.ADMIN_EMAIL || '')) {
-      errors.push('ADMIN_EMAIL válido obrigatório em produção para os códigos de acesso.');
-    }
-
-    if (!env.SMTP_HOST || !env.SMTP_USER || !env.SMTP_PASSWORD) {
-      errors.push('SMTP_HOST, SMTP_USER e SMTP_PASSWORD obrigatórios em produção para enviar códigos de acesso.');
-    }
-
-    const smtpPort = Number(env.SMTP_PORT || 587);
-    if (!Number.isInteger(smtpPort) || smtpPort < 1 || smtpPort > 65535) {
-      errors.push('SMTP_PORT inválida em produção.');
-    }
-    if (env.SMTP_SECURE && !['true', 'false'].includes(env.SMTP_SECURE)) {
-      errors.push('SMTP_SECURE deve ser true ou false.');
-    }
-
     if (!env.DATABASE_URL) {
       errors.push('DATABASE_URL obrigatório em produção.');
     }
