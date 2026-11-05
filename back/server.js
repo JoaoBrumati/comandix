@@ -10,7 +10,7 @@ const rateLimit = require('express-rate-limit');
 const { lookupPublicAddress, quoteDelivery } = require('./src/delivery');
 const { orderSchema } = require('./src/validators');
 const adminStore = require('./src/admin');
-const { sendAdminLoginCode } = require('./src/admin-email');
+const { getAdminEmailErrorMessage, sendAdminLoginCode } = require('./src/admin-email');
 const { detectImageFormat, isAllowedImageMimeType } = require('./src/image-validation');
 const { hashPassword, verifyPassword, buildAdminCookie, buildCsrfCookie, clearAdminCookie, clearCsrfCookie, cookieValue, generateCsrfToken, getClientIp, recordFailedLogin, isBlockedIp, clearFailedLogin, logAdminAuditEvent, findRecentAuditLogs, isAllowedAdminIp, isAllowedAdminOrigin, buildSecurityAlertPayload, validateProductionConfig } = require('./src/security');
 const { createCheckoutPreference, fetchMercadoPagoPayment, verifyWebhookSignature } = require('./src/payments');
@@ -252,8 +252,8 @@ app.post('/api/admin/login', requireSameOrigin, adminLoginLimiter, asyncRoute(as
     await sendAdminLoginCode(email, code);
   } catch (error) {
     await adminStore.deleteAdminLoginChallenge(challengeToken);
-    console.error(`Não foi possível enviar o código de acesso por e-mail (${error.code || error.name}).`);
-    return response.status(503).json({ error: 'Não foi possível enviar o código de segurança. Confira a configuração de e-mail e tente novamente.' });
+    console.error(`Não foi possível enviar o código de acesso por e-mail (${error.code || error.name}; SMTP ${error.responseCode || 'sem resposta'}).`);
+    return response.status(503).json({ error: getAdminEmailErrorMessage(error) });
   }
   logAdminAuditEvent('admin_login_code_sent', request, { username });
   return response.json({

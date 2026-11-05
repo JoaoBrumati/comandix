@@ -1,6 +1,6 @@
 const assert = require('node:assert/strict');
 const test = require('node:test');
-const { sendAdminLoginCode } = require('./admin-email');
+const { getAdminEmailErrorMessage, sendAdminLoginCode } = require('./admin-email');
 
 test('sends an expiring access code with the configured SMTP account', async () => {
   const env = {
@@ -34,6 +34,14 @@ test('sends an expiring access code with the configured SMTP account', async () 
 test('reports incomplete SMTP configuration rather than silently skipping the code email', async () => {
   await assert.rejects(
     sendAdminLoginCode('admin@example.com', '123456', {}),
-    /Configure SMTP_HOST, SMTP_PORT, SMTP_USER, SMTP_PASSWORD/
+    /Configure SMTP_HOST, SMTP_PORT, SMTP_USER e SMTP_PASSWORD\. SMTP_FROM é opcional/
   );
+});
+
+test('reports Microsoft SMTP authentication failures without exposing provider details', () => {
+  assert.match(getAdminEmailErrorMessage({ code: 'EAUTH', responseCode: 535 }), /SMTP AUTH está habilitado/);
+});
+
+test('reports SMTP connection failures with the relevant safe settings', () => {
+  assert.match(getAdminEmailErrorMessage({ code: 'ETIMEDOUT' }), /SMTP_HOST, SMTP_PORT e SMTP_SECURE/);
 });
