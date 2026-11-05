@@ -10,6 +10,7 @@ const rateLimit = require('express-rate-limit');
 const { lookupPublicAddress, quoteDelivery } = require('./src/delivery');
 const { orderSchema } = require('./src/validators');
 const adminStore = require('./src/admin');
+const { getApiErrorResponse } = require('./src/api-errors');
 const QRCode = require('qrcode');
 const { createAuthenticatorUri, createRecoveryCodes, createTotpSecret, hashRecoveryCode, verifyTotp } = require('./src/admin-totp');
 const { detectImageFormat, isAllowedImageMimeType } = require('./src/image-validation');
@@ -581,10 +582,12 @@ app.use('/img', express.static(imageDir, { maxAge: '7d', fallthrough: false }));
 app.use(express.static(buildDir, { maxAge: process.env.NODE_ENV === 'production' ? '1d' : 0 }));
 app.get('*', (_request, response) => response.sendFile(path.join(buildDir, 'index.html')));
 
-app.use((error, _request, response, _next) => {
-  if (error.type === 'entity.parse.failed') return response.status(400).json({ error: 'JSON inválido.' });
+app.use((error, request, response, _next) => {
   if (error instanceof multer.MulterError) return response.status(413).json({ error: 'O arquivo excede o limite de 5 MB.' });
-  return response.status(500).json({ error: 'Erro interno do servidor.' });
+  const { status, body } = getApiErrorResponse(error);
+  const model = error.meta?.modelName || error.meta?.table || '';
+  console.error(`[api-error] ${request.method} ${request.path} ${error.code || error.name}${model ? ` (${model})` : ''}`);
+  return response.status(status).json(body);
 });
 
 const databaseInitialization = adminStore.initializeAdminStore()
