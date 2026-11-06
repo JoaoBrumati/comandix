@@ -3,7 +3,7 @@ function StorefrontPage() {
     <div className="page-view active" id="home-page">
       <section className="content-section">
         <a className="store-hero store-hero-banner" href="#catalog" aria-label="Faça seu pedido de salgados Fino Sabor">
-          <img src="/img/fino-sabor-banner.png" alt="Fino Sabor Salgados: uma mistura de sabores e temperos deliciosos. Faça seu pedido." />
+          <img src="/img/fino-sabor-banner.svg" alt="Fino Sabor Salgados: uma mistura de sabores e temperos deliciosos. Faça seu pedido." />
         </a>
 
         <section className="catalog-section" id="catalog">
