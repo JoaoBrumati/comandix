@@ -1714,7 +1714,7 @@
 
 .admin-profile-card {
   display: grid;
-  grid-template-columns: repeat(3, minmax(0, 1fr));
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 220px), 1fr));
   gap: 12px;
   margin: 20px 0 30px;
 }
@@ -1722,11 +1722,19 @@
 .admin-profile-card > div,
 .admin-account-row {
   display: grid;
+  min-width: 0;
   gap: 7px;
   padding: 15px;
   border: 1px solid var(--line);
-  border-radius: 8px;
+  border-radius: 12px;
   background: var(--white);
+}
+
+.admin-profile-card > div {
+  min-height: 84px;
+  align-content: center;
+  padding: 18px;
+  box-shadow: 0 5px 16px rgba(96, 45, 24, .045);
 }
 
 .admin-profile-card span,
@@ -1744,12 +1752,18 @@
 .admin-account-form {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap: 14px;
-  margin: 18px 0;
-  padding: 18px;
+  gap: 18px;
+  margin: 20px 0;
+  padding: clamp(16px, 2.5vw, 26px);
   border: 1px solid var(--line);
-  border-radius: 8px;
+  border-radius: 14px;
   background: var(--white);
+  box-shadow: 0 8px 24px rgba(96, 45, 24, .045);
+}
+
+.admin-account-management,
+.admin-account-form > label {
+  min-width: 0;
 }
 
 .admin-account-permissions {
@@ -1760,7 +1774,7 @@
   margin: 0;
   padding: 12px;
   border: 1px solid var(--line);
-  border-radius: 7px;
+  border-radius: 10px;
 }
 
 .admin-account-permissions legend {
@@ -1998,5 +2012,16 @@
   .daily-promotion-item .promotion-order {
     grid-column: 1 / -1;
     width: 100%;
+  }
+}
+
+@media (max-width: 700px) {
+  .admin-profile-card,
+  .admin-account-form {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .admin-account-permissions {
+    grid-column: 1;
   }
 }

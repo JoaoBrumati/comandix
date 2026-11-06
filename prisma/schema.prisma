@@ -81,7 +81,7 @@ model AdminAccount {
   name         String         @db.VarChar(100)
   loginName    String         @unique @db.VarChar(100)
   email        String         @unique @db.VarChar(254)
-  passwordHash String         @db.VarChar(160)
+  passwordHash String         @db.Text
   permissions  String[]       @default([])
   createdAt    DateTime       @default(now())
   sessions     AdminSession[]
