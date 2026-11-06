@@ -40,7 +40,8 @@ Cadastre na Vercel, sem adicionar segredos ao Git:
 
 - `DATABASE_URL`, `DIRECT_URL` e `DATA_ENCRYPTION_KEY`; aplique as migrations no PostgreSQL antes do primeiro uso.
 - `ADMIN_PASSWORD` (mínimo de 12 caracteres) ou `ADMIN_PASSWORD_HASH`.
-- `ADMIN_EMAIL` para identificar o administrador principal no painel. No primeiro login, cada perfil configura o Microsoft Authenticator escaneando um QR code; os próximos acessos usam o código de seis dígitos do aplicativo.
+- `ADMIN_EMAIL` para identificar o administrador principal e permitir a recuperação da senha por e-mail. No primeiro login, cada perfil configura o Microsoft Authenticator escaneando um QR code; os próximos acessos usam o código de seis dígitos do aplicativo.
+- `RESEND_API_KEY` e `PASSWORD_RESET_FROM` para habilitar “Esqueci a minha senha”. Configure um remetente verificado no Resend; os links expiram em 30 minutos e só podem ser usados uma vez.
 - `PUBLIC_BASE_URL` com a URL HTTPS pública do site.
 - `CLIENT_ORIGIN` com a mesma origem pública do site, por exemplo `https://loja.exemplo.com`.
 
@@ -97,7 +98,7 @@ Para enviar atualizações automáticas ao cliente diretamente pela WhatsApp Clo
 - `pedido_entregue`: `🎉 Seu pedido #{{1}} foi entregue com sucesso! Obrigado pela preferência. Esperamos você novamente em breve!`
 
 O cliente só recebe mensagens se marcar a opção de consentimento no checkout. A confirmação de pedidos em dinheiro é enviada ao criar o pedido; para Mercado Pago, ela só é enviada após aprovação do pagamento. Os estados em produção, em rota e entregue são enviados quando alterados no painel; pedido pronto não gera mensagem. `WHATSAPP_DELIVERY_ESTIMATE` define o prazo mostrado (padrão `60 min`). Sem as credenciais ou templates configurados, o pedido e as mudanças de status continuam funcionando, mas nenhuma mensagem é enviada.
-Sistema de pedidos com loja, carrinho, acompanhamento e painel administrativo. A interface usa React, TypeScript e Vite; o servidor Express e a integração com PostgreSQL/Prisma permanecem em `back/` e `prisma/`.
+Sistema de pedidos com loja, carrinho, acompanhamento e área administrativa. A interface usa React, TypeScript e Vite; o servidor Express e a integração com PostgreSQL/Prisma permanecem em `back/` e `prisma/`.
 
 ## Requisitos
 

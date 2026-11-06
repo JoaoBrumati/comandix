@@ -221,8 +221,10 @@ test('stores pending authenticator secrets encrypted and enables them after code
 
 test('creates collaborator accounts with a hashed password and selected permissions', async t => {
   const originalCreate = prisma.adminAccount.create;
+  const originalOwnerFindUnique = prisma.adminOwnerCredential.findUnique;
   const id = '536a94c8-e118-41d8-b512-6aa50d958931';
   let createArgs;
+  prisma.adminOwnerCredential.findUnique = async () => ({ loginName: 'admin' });
   prisma.adminAccount.create = async args => {
     createArgs = args;
     return {
@@ -235,6 +237,7 @@ test('creates collaborator accounts with a hashed password and selected permissi
   };
   t.after(() => {
     prisma.adminAccount.create = originalCreate;
+    prisma.adminOwnerCredential.findUnique = originalOwnerFindUnique;
   });
 
   const result = await adminStore.createAdminAccount({
@@ -332,6 +335,95 @@ test('rejects invalid collaborator credentials before writing an account', async
 
   assert.match(result.error, /Confira o nome/);
   assert.equal(createCalled, false);
+});
+
+test('updates owner username and password without exposing the hash or dropping the active session', async t => {
+  const originalOwnerFindUnique = prisma.adminOwnerCredential.findUnique;
+  const originalOwnerUpdate = prisma.adminOwnerCredential.update;
+  const originalAccountFindFirst = prisma.adminAccount.findFirst;
+  const originalSessionDeleteMany = prisma.adminSession.deleteMany;
+  const calls = [];
+  prisma.adminOwnerCredential.findUnique = async () => ({ loginName: 'admin' });
+  prisma.adminOwnerCredential.update = async args => {
+    calls.push(['owner', args]);
+    return { loginName: args.data.loginName };
+  };
+  prisma.adminAccount.findFirst = async () => null;
+  prisma.adminSession.deleteMany = async args => {
+    calls.push(['sessions', args]);
+    return { count: 2 };
+  };
+  t.after(() => {
+    prisma.adminOwnerCredential.findUnique = originalOwnerFindUnique;
+    prisma.adminOwnerCredential.update = originalOwnerUpdate;
+    prisma.adminAccount.findFirst = originalAccountFindFirst;
+    prisma.adminSession.deleteMany = originalSessionDeleteMany;
+  });
+
+  const result = await adminStore.updateAdminOwnerCredentials({
+    name: 'Novo Admin',
+    password: 'senha-nova-segura-123'
+  }, 'active-session-token');
+
+  assert.deepEqual(result, { data: { loginName: 'novo admin' } });
+  assert.equal(calls[0][1].data.loginName, 'novo admin');
+  assert.equal(verifyPassword('senha-nova-segura-123', calls[0][1].data.passwordHash), true);
+  assert.deepEqual(calls[1][1].where.accountId, null);
+  assert.ok(calls[1][1].where.tokenHash.not);
+});
+
+test('updates collaborator credentials and preserves only the active session', async t => {
+  const originalOwnerFindUnique = prisma.adminOwnerCredential.findUnique;
+  const originalAccountUpdate = prisma.adminAccount.update;
+  const originalSessionDeleteMany = prisma.adminSession.deleteMany;
+  const calls = [];
+  prisma.adminOwnerCredential.findUnique = async () => ({ loginName: 'admin' });
+  prisma.adminAccount.update = async args => {
+    calls.push(['account', args]);
+    return { id: args.where.id, name: args.data.name };
+  };
+  prisma.adminSession.deleteMany = async args => {
+    calls.push(['sessions', args]);
+    return { count: 1 };
+  };
+  t.after(() => {
+    prisma.adminOwnerCredential.findUnique = originalOwnerFindUnique;
+    prisma.adminAccount.update = originalAccountUpdate;
+    prisma.adminSession.deleteMany = originalSessionDeleteMany;
+  });
+
+  const result = await adminStore.updateAdminAccountCredentials(
+    '536a94c8-e118-41d8-b512-6aa50d958931',
+    { name: 'Nova Pessoa', password: 'senha-colaborador-nova-123' },
+    'active-collaborator-session'
+  );
+
+  assert.deepEqual(result, { data: { id: '536a94c8-e118-41d8-b512-6aa50d958931', name: 'Nova Pessoa' } });
+  assert.equal(calls[0][1].data.loginName, 'nova pessoa');
+  assert.equal(verifyPassword('senha-colaborador-nova-123', calls[0][1].data.passwordHash), true);
+  assert.equal(calls[1][1].where.accountId, '536a94c8-e118-41d8-b512-6aa50d958931');
+  assert.ok(calls[1][1].where.tokenHash.not);
+});
+
+test('consumes an account password reset token once and invalidates the account sessions', async t => {
+  const originalTransaction = prisma.$transaction;
+  const id = '536a94c8-e118-41d8-b512-6aa50d958931';
+  const calls = [];
+  prisma.$transaction = async operation => operation({
+    adminPasswordReset: {
+      findUnique: async () => ({ accountId: id, isOwner: false, expiresAt: new Date(Date.now() + 60_000) }),
+      deleteMany: async () => ({ count: 1 })
+    },
+    adminAccount: { update: async args => { calls.push(['account', args]); return {}; } },
+    adminSession: { deleteMany: async args => { calls.push(['sessions', args]); return { count: 1 }; } }
+  });
+  t.after(() => {
+    prisma.$transaction = originalTransaction;
+  });
+
+  assert.equal(await adminStore.resetAdminPassword('one-time-token', 'senha-segura-nova-123'), true);
+  assert.equal(verifyPassword('senha-segura-nova-123', calls[0][1].data.passwordHash), true);
+  assert.deepEqual(calls[1][1], { where: { accountId: id } });
 });
 
 test('stores login challenges with a hashed token and limits invalid attempts', async t => {

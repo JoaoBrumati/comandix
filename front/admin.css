@@ -58,12 +58,24 @@
   font-size: 13px;
 }
 
-#admin-login-form {
+#admin-login-form,
+#admin-forgot-password-form,
+#admin-reset-password-form {
   display: grid;
   gap: 12px;
 }
 
+#admin-forgot-password-form[hidden],
+#admin-reset-password-form[hidden],
+#admin-login-form[hidden],
+#admin-edit-account-form[hidden] {
+  display: none !important;
+}
+
 #admin-login-form label,
+#admin-forgot-password-form label,
+#admin-reset-password-form label,
+#admin-self-account-form label,
 .employee-form label,
 .admin-select-label {
   display: grid;
@@ -73,6 +85,8 @@
 }
 
 #admin-login-form input,
+#admin-forgot-password-form input,
+#admin-reset-password-form input,
 .employee-form input,
 .admin-select-label select {
   width: 100%;
@@ -87,12 +101,16 @@
 }
 
 #admin-login-form input:focus,
+#admin-forgot-password-form input:focus,
+#admin-reset-password-form input:focus,
 .employee-form input:focus,
 .admin-select-label select:focus {
   border-color: var(--coral);
 }
 
 #admin-login-form button,
+#admin-forgot-password-form button[type="submit"],
+#admin-reset-password-form button[type="submit"],
 .admin-primary {
   min-height: 40px;
   padding: 0 14px;
@@ -101,6 +119,26 @@
   color: var(--white);
   font-size: 11px;
   font-weight: 700;
+}
+
+#admin-login-form .admin-text-button {
+  min-height: 32px;
+  justify-self: center;
+  padding: 0 8px;
+  background: transparent;
+  color: var(--muted);
+  font-size: 11px;
+  font-weight: 600;
+  text-decoration: underline;
+}
+
+#admin-forgot-password-form > p:first-child,
+#admin-reset-password-form > p:first-child,
+.admin-self-account-form > div p {
+  margin: 0 0 4px;
+  color: var(--muted);
+  font-size: 12px;
+  line-height: 1.5;
 }
 
 #admin-login-form button span,
@@ -1797,6 +1835,58 @@
   justify-self: start;
 }
 
+.admin-self-account-form {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 16px;
+  margin: 0 0 28px;
+  padding: clamp(16px, 2.5vw, 26px);
+  border: 1px solid var(--line);
+  border-radius: 14px;
+  background: var(--white);
+}
+
+.admin-self-account-form > div:first-child {
+  grid-column: 1 / -1;
+}
+
+.admin-self-account-form h3,
+.admin-self-account-form > div p {
+  margin-top: 0;
+}
+
+.admin-self-account-form h3 {
+  margin-bottom: 6px;
+}
+
+.admin-self-account-form small {
+  color: var(--muted);
+  font-size: 11px;
+}
+
+.admin-self-account-form input:not([type="hidden"]) {
+  box-sizing: border-box;
+  width: 100%;
+  min-height: 42px;
+  border: 1px solid var(--line);
+  border-radius: 7px;
+  padding: 10px 12px;
+  background: var(--white);
+  color: var(--ink);
+  font: inherit;
+}
+
+.admin-self-account-form > button,
+.admin-self-account-form > .employee-form-actions {
+  grid-column: 1 / -1;
+  justify-self: start;
+}
+
+.admin-self-account-form .employee-form-actions {
+  display: flex;
+  gap: 9px;
+}
+
 .admin-account-list {
   display: grid;
   gap: 9px;
@@ -1982,11 +2072,18 @@
   }
 
   .admin-profile-card,
-  .admin-account-form {
+  .admin-account-form,
+  .admin-self-account-form {
     grid-template-columns: minmax(0, 1fr);
   }
 
   .admin-account-permissions {
+    grid-column: 1;
+  }
+
+  .admin-self-account-form > div:first-child,
+  .admin-self-account-form > button,
+  .admin-self-account-form > .employee-form-actions {
     grid-column: 1;
   }
 
@@ -2017,11 +2114,18 @@
 
 @media (max-width: 700px) {
   .admin-profile-card,
-  .admin-account-form {
+  .admin-account-form,
+  .admin-self-account-form {
     grid-template-columns: minmax(0, 1fr);
   }
 
   .admin-account-permissions {
+    grid-column: 1;
+  }
+
+  .admin-self-account-form > div:first-child,
+  .admin-self-account-form > button,
+  .admin-self-account-form > .employee-form-actions {
     grid-column: 1;
   }
 }

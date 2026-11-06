@@ -14,7 +14,7 @@ const { getApiErrorResponse } = require('./src/api-errors');
 const QRCode = require('qrcode');
 const { createAuthenticatorUri, createRecoveryCodes, createTotpSecret, hashRecoveryCode, verifyTotp } = require('./src/admin-totp');
 const { detectImageFormat, isAllowedImageMimeType } = require('./src/image-validation');
-const { hashPassword, verifyPassword, buildAdminCookie, buildCsrfCookie, clearAdminCookie, clearCsrfCookie, cookieValue, generateCsrfToken, getClientIp, recordFailedLogin, isBlockedIp, clearFailedLogin, logAdminAuditEvent, findRecentAuditLogs, isAllowedAdminIp, isAllowedAdminOrigin, buildSecurityAlertPayload, validateProductionConfig } = require('./src/security');
+const { verifyPassword, buildAdminCookie, buildCsrfCookie, clearAdminCookie, clearCsrfCookie, cookieValue, generateCsrfToken, getClientIp, recordFailedLogin, isBlockedIp, clearFailedLogin, logAdminAuditEvent, findRecentAuditLogs, isAllowedAdminIp, isAllowedAdminOrigin, buildSecurityAlertPayload, validateProductionConfig } = require('./src/security');
 const { createCheckoutPreference, fetchMercadoPagoPayment, verifyWebhookSignature } = require('./src/payments');
 const { sendOrderNotification } = require('./src/whatsapp');
 
@@ -107,6 +107,13 @@ const adminLoginLimiter = rateLimit({
   legacyHeaders: false,
   message: { error: 'Muitas tentativas de login. Tente novamente em alguns minutos.' }
 });
+const passwordResetLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000,
+  limit: 5,
+  standardHeaders: true,
+  legacyHeaders: false,
+  message: { error: 'Muitas solicitações. Aguarde alguns minutos e tente novamente.' }
+});
 app.use(globalRateLimiter);
 app.use('/api', (_request, response, next) => {
   if (process.env.NODE_ENV === 'production' && !productionConfig.ok) {
@@ -157,7 +164,7 @@ async function requireAdmin(request, response, next) {
   if (!session) return response.status(401).json({ error: 'Acesso administrativo necessário.' });
   const clientIp = getClientIp(request);
   if (!isAllowedAdminIp(clientIp, process.env.ADMIN_ALLOWED_IPS)) {
-    return response.status(403).json({ error: 'IP não autorizado para o painel administrativo.' });
+    return response.status(403).json({ error: 'IP não autorizado para a área administrativa.' });
   }
   request.adminSession = session;
   next();
@@ -191,7 +198,7 @@ async function requireCsrf(request, response, next) {
   next();
 }
 
-function getAdminProfile(session) {
+async function getAdminProfile(session) {
   const account = session.account;
   if (account) {
     return {
@@ -202,8 +209,9 @@ function getAdminProfile(session) {
       isOwner: false
     };
   }
+  const owner = await adminStore.getAdminOwnerCredential();
   return {
-    name: process.env.ADMIN_USER || 'admin',
+    name: owner?.loginName || process.env.ADMIN_USER || 'admin',
     email: process.env.ADMIN_EMAIL || '',
     permissions: ['dashboard', 'orders', 'menu'],
     isOwner: true
@@ -239,7 +247,7 @@ async function completeAdminLogin(request, response, account, extra = {}) {
   return response.json({
     authenticated: true,
     csrfToken,
-    profile: getAdminProfile({ account, accountId: account?.id || null }),
+    profile: await getAdminProfile({ account, accountId: account?.id || null }),
     ...extra
   });
 }
@@ -248,16 +256,15 @@ app.post('/api/admin/login', requireSameOrigin, preventAdminAuthCaching, adminLo
   const clientIp = getClientIp(request);
   if (!isAllowedAdminIp(clientIp, process.env.ADMIN_ALLOWED_IPS)) {
     logAdminAuditEvent('admin_ip_blocked', request, { ip: clientIp, reason: 'not_in_whitelist' });
-    return response.status(403).json({ error: 'Este IP não está autorizado para acessar o painel administrativo.' });
+    return response.status(403).json({ error: 'Este IP não está autorizado para acessar a área administrativa.' });
   }
   if (isBlockedIp(clientIp)) return response.status(403).json({ error: 'IP temporariamente bloqueado por muitas tentativas de login.' });
   try { await adminStore.initializeAdminStore(); } catch { return response.status(503).json({ error: 'Não foi possível abrir o PostgreSQL. Confira DATABASE_URL e as migrations.' }); }
-  const expectedPassword = process.env.ADMIN_PASSWORD_HASH || (process.env.ADMIN_PASSWORD ? hashPassword(process.env.ADMIN_PASSWORD) : '');
-  if (!expectedPassword || expectedPassword.length < 32) return response.status(503).json({ error: 'Configure ADMIN_PASSWORD ou ADMIN_PASSWORD_HASH com uma senha forte no .env.' });
-  const expectedUser = process.env.ADMIN_USER || 'admin';
+  const ownerCredential = await adminStore.getAdminOwnerCredential();
+  if (!ownerCredential?.passwordHash || ownerCredential.passwordHash.length < 32) return response.status(503).json({ error: 'Configure ADMIN_PASSWORD ou ADMIN_PASSWORD_HASH e aplique as migrations do banco.' });
   const username = typeof request.body?.username === 'string' ? request.body.username.trim() : '';
   const password = typeof request.body?.password === 'string' ? request.body.password : '';
-  const isOwner = username.toLowerCase() === expectedUser.toLowerCase() && verifyPassword(password, expectedPassword);
+  const isOwner = username.toLowerCase() === ownerCredential.loginName && verifyPassword(password, ownerCredential.passwordHash);
   const account = isOwner ? null : await adminStore.findAdminAccountByLogin(username);
   if (!isOwner && (!account || !verifyPassword(password, account.passwordHash))) {
     recordFailedLogin(clientIp);
@@ -298,7 +305,7 @@ app.post('/api/admin/login', requireSameOrigin, preventAdminAuthCaching, adminLo
 app.post('/api/admin/login/totp/setup/verify', requireSameOrigin, preventAdminAuthCaching, adminLoginLimiter, asyncRoute(async (request, response) => {
   const clientIp = getClientIp(request);
   if (!isAllowedAdminIp(clientIp, process.env.ADMIN_ALLOWED_IPS)) {
-    return response.status(403).json({ error: 'Este IP não está autorizado para acessar o painel administrativo.' });
+    return response.status(403).json({ error: 'Este IP não está autorizado para acessar a área administrativa.' });
   }
   if (isBlockedIp(clientIp)) return response.status(403).json({ error: 'IP temporariamente bloqueado por muitas tentativas de login.' });
   const setupToken = typeof request.body?.setupToken === 'string' ? request.body.setupToken : '';
@@ -322,7 +329,7 @@ app.post('/api/admin/login/totp/setup/verify', requireSameOrigin, preventAdminAu
 app.post('/api/admin/login/verify', requireSameOrigin, preventAdminAuthCaching, adminLoginLimiter, asyncRoute(async (request, response) => {
   const clientIp = getClientIp(request);
   if (!isAllowedAdminIp(clientIp, process.env.ADMIN_ALLOWED_IPS)) {
-    return response.status(403).json({ error: 'Este IP não está autorizado para acessar o painel administrativo.' });
+    return response.status(403).json({ error: 'Este IP não está autorizado para acessar a área administrativa.' });
   }
   if (isBlockedIp(clientIp)) return response.status(403).json({ error: 'IP temporariamente bloqueado por muitas tentativas de login.' });
   const challengeToken = typeof request.body?.challengeToken === 'string' ? request.body.challengeToken : '';
@@ -348,9 +355,9 @@ app.post('/api/admin/login/verify', requireSameOrigin, preventAdminAuthCaching, 
   return completeAdminLogin(request, response, account);
 }));
 
-app.get('/api/admin/session', asyncRoute(requireAdmin), (request, response) => {
-  return response.json({ authenticated: true, csrfToken: request.adminSession.csrfToken, profile: getAdminProfile(request.adminSession) });
-});
+app.get('/api/admin/session', asyncRoute(requireAdmin), asyncRoute(async (request, response) => {
+  return response.json({ authenticated: true, csrfToken: request.adminSession.csrfToken, profile: await getAdminProfile(request.adminSession) });
+}));
 app.delete('/api/admin/session', requireSameOrigin, asyncRoute(async (request, response) => {
   const clientIp = getClientIp(request);
   await adminStore.deleteAdminSession(cookieValue(request, 'comandix_admin'));
@@ -360,6 +367,65 @@ app.delete('/api/admin/session', requireSameOrigin, asyncRoute(async (request, r
 }));
 
 const adminApi = express.Router();
+adminApi.post('/forgot-password', requireSameOrigin, preventAdminAuthCaching, passwordResetLimiter, asyncRoute(async (request, response) => {
+  const email = typeof request.body?.email === 'string' ? request.body.email.trim().toLowerCase() : '';
+  if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email) || email.length > 254) {
+    return response.status(400).json({ error: 'Informe um e-mail válido.' });
+  }
+  if (!process.env.RESEND_API_KEY || !process.env.PASSWORD_RESET_FROM || !process.env.PUBLIC_BASE_URL) {
+    return response.status(503).json({ error: 'Configure RESEND_API_KEY, PASSWORD_RESET_FROM e PUBLIC_BASE_URL para recuperar a senha por e-mail.' });
+  }
+
+  const isOwner = Boolean(process.env.ADMIN_EMAIL && email === process.env.ADMIN_EMAIL.trim().toLowerCase());
+  const account = isOwner ? null : await adminStore.findAdminAccountByEmail(email);
+  if (isOwner || account) {
+    const token = crypto.randomBytes(32).toString('base64url');
+    const resetUrl = new URL('/admin', process.env.PUBLIC_BASE_URL);
+    if (!['http:', 'https:'].includes(resetUrl.protocol)) {
+      return response.status(503).json({ error: 'PUBLIC_BASE_URL precisa usar HTTP ou HTTPS para recuperar a senha.' });
+    }
+    resetUrl.hash = `reset=${token}`;
+    await adminStore.createAdminPasswordReset(token, new Date(Date.now() + 30 * 60 * 1000), account?.id || null, isOwner);
+    let delivery;
+    try {
+      delivery = await fetch('https://api.resend.com/emails', {
+        method: 'POST',
+        headers: {
+          Authorization: `Bearer ${process.env.RESEND_API_KEY}`,
+          'Content-Type': 'application/json'
+        },
+        body: JSON.stringify({
+          from: process.env.PASSWORD_RESET_FROM,
+          to: [email],
+          subject: 'Redefinição da senha administrativa',
+          text: `Use este link para redefinir sua senha. Ele expira em 30 minutos e só pode ser usado uma vez:\n\n${resetUrl.toString()}`,
+          html: `<p>Foi solicitada a redefinição da sua senha administrativa.</p><p><a href="${resetUrl.toString()}">Redefinir senha</a></p><p>O link expira em 30 minutos e só pode ser usado uma vez. Se você não fez esta solicitação, ignore este e-mail.</p>`
+        })
+      });
+    } catch (error) {
+      await adminStore.deleteAdminPasswordReset(token);
+      console.error(`[password-reset] Email delivery failed (${error.name}).`);
+      return response.status(502).json({ error: 'Não foi possível enviar o e-mail de recuperação. Tente novamente mais tarde.' });
+    }
+    if (!delivery.ok) {
+      await adminStore.deleteAdminPasswordReset(token);
+      console.error(`[password-reset] Email delivery failed (HTTP ${delivery.status}).`);
+      return response.status(502).json({ error: 'Não foi possível enviar o e-mail de recuperação. Tente novamente mais tarde.' });
+    }
+  }
+  return response.json({ message: 'Se o e-mail estiver cadastrado, você receberá um link para redefinir a senha.' });
+}));
+adminApi.post('/reset-password', requireSameOrigin, preventAdminAuthCaching, passwordResetLimiter, asyncRoute(async (request, response) => {
+  const token = typeof request.body?.token === 'string' ? request.body.token : '';
+  const password = typeof request.body?.password === 'string' ? request.body.password : '';
+  if (!token || password.length < 12 || password.length > 128) {
+    return response.status(400).json({ error: 'Informe um link válido e uma senha com pelo menos 12 caracteres.' });
+  }
+  if (!await adminStore.resetAdminPassword(token, password)) {
+    return response.status(400).json({ error: 'Este link de recuperação é inválido, expirou ou já foi utilizado.' });
+  }
+  return response.json({ message: 'Senha alterada. Entre com sua nova senha.' });
+}));
 adminApi.use(asyncRoute(requireAdmin));
 adminApi.use(requireSameOrigin);
 adminApi.use((request, _response, next) => {
@@ -368,12 +434,44 @@ adminApi.use((request, _response, next) => {
 });
 adminApi.use(asyncRoute(requireCsrf));
 adminApi.use(requireSectionPermission);
-adminApi.get('/profile', (request, response) => response.json({ profile: getAdminProfile(request.adminSession) }));
+adminApi.get('/profile', asyncRoute(async (request, response) => response.json({ profile: await getAdminProfile(request.adminSession) })));
+adminApi.patch('/profile', asyncRoute(async (request, response) => {
+  const currentPassword = typeof request.body?.currentPassword === 'string' ? request.body.currentPassword : '';
+  const password = typeof request.body?.password === 'string' && request.body.password ? request.body.password : undefined;
+  const payload = { name: request.body?.name, ...(password ? { password } : {}) };
+  const currentSessionToken = cookieValue(request, 'comandix_admin');
+  if (request.adminSession.accountId) {
+    const account = request.adminSession.account;
+    if (!account || !verifyPassword(currentPassword, account.passwordHash)) {
+      return response.status(401).json({ error: 'A senha atual está incorreta.' });
+    }
+    const result = await adminStore.updateAdminAccountCredentials(account.id, payload, currentSessionToken);
+    if (result.error) return response.status(result.status || 400).json({ error: result.error, details: result.details });
+    request.adminSession.account = await adminStore.getAdminAccountById(account.id);
+  } else {
+    const owner = await adminStore.getAdminOwnerCredential();
+    if (!owner || !verifyPassword(currentPassword, owner.passwordHash)) {
+      return response.status(401).json({ error: 'A senha atual está incorreta.' });
+    }
+    const result = await adminStore.updateAdminOwnerCredentials(payload, currentSessionToken);
+    if (result.error) return response.status(result.status || 400).json({ error: result.error, details: result.details });
+  }
+  return response.json({ profile: await getAdminProfile(request.adminSession) });
+}));
 adminApi.get('/accounts', requireOwner, asyncRoute(async (_request, response) => response.json({ accounts: await adminStore.listAdminAccounts() })));
 adminApi.post('/accounts', requireOwner, asyncRoute(async (request, response) => {
   const result = await adminStore.createAdminAccount(request.body);
   if (result.error) return response.status(result.status || 400).json({ error: result.error, details: result.details });
   return response.status(201).json(result.data);
+}));
+adminApi.patch('/accounts/:id', requireOwner, asyncRoute(async (request, response) => {
+  const password = typeof request.body?.password === 'string' && request.body.password ? request.body.password : undefined;
+  const result = await adminStore.updateAdminAccountCredentials(
+    request.params.id,
+    { name: request.body?.name, ...(password ? { password } : {}) }
+  );
+  if (result.error) return response.status(result.status || 400).json({ error: result.error, details: result.details });
+  return response.json(result.data);
 }));
 adminApi.delete('/accounts/:id', requireOwner, asyncRoute(async (request, response) => {
   if (!await adminStore.deleteAdminAccount(request.params.id)) return response.status(404).json({ error: 'Perfil de colaborador não encontrado.' });

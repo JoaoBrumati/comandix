@@ -9,8 +9,25 @@ function AdminPage() {
           <label>Usuário<input id="admin-username" autoComplete="username" defaultValue="admin" required /></label>
           <label>Senha do administrador<input id="admin-password" type="password" autoComplete="current-password" required /></label>
           <button type="submit">Entrar no painel <span>→</span></button>
+          <button className="admin-text-button" id="forgot-password-link" type="button">Esqueci a minha senha</button>
         </form>
         <p className="admin-feedback" id="admin-login-feedback" role="alert" />
+        <form id="admin-forgot-password-form" hidden>
+          <p>Informe o e-mail cadastrado para receber um link seguro de redefinição.</p>
+          <label>E-mail<input id="admin-forgot-password-email" type="email" autoComplete="email" maxLength={254} required /></label>
+          <button type="submit">Enviar link de recuperação</button>
+          <button className="admin-secondary" id="forgot-password-back" type="button">Voltar ao login</button>
+          <p className="admin-feedback" id="forgot-password-feedback" role="status" />
+        </form>
+        <form id="admin-reset-password-form" hidden>
+          <p>Escolha uma nova senha com pelo menos 12 caracteres.</p>
+          <input id="admin-reset-password-token" type="hidden" />
+          <label>Nova senha<input id="admin-reset-password" type="password" autoComplete="new-password" minLength={12} maxLength={128} required /></label>
+          <label>Confirme a nova senha<input id="admin-reset-password-confirm" type="password" autoComplete="new-password" minLength={12} maxLength={128} required /></label>
+          <button type="submit">Redefinir senha</button>
+          <button className="admin-secondary" id="reset-password-back" type="button">Voltar ao login</button>
+          <p className="admin-feedback" id="reset-password-feedback" role="alert" />
+        </form>
         <form id="admin-totp-setup-form" hidden>
           <p id="admin-totp-setup-description">Escaneie o QR code no Microsoft Authenticator e informe o código de seis dígitos exibido.</p>
           <img id="admin-totp-qr" alt="QR code para configurar o Microsoft Authenticator" />
@@ -40,7 +57,7 @@ function AdminPage() {
         <div className="admin-page-heading">
           <div>
             <span className="section-kicker">GESTÃO DA LOJA</span>
-            <h1>Painel administrativo</h1>
+            <h1>Administração</h1>
           </div>
           <div className="admin-dashboard-actions">
             <button id="admin-logout" className="admin-logout">Sair</button>
@@ -193,6 +210,18 @@ function AdminPage() {
             </div>
           </div>
           <section className="admin-profile-card" id="admin-profile-details" aria-live="polite" />
+          <form className="admin-self-account-form" id="admin-self-account-form">
+            <div>
+              <h3>Editar meu acesso</h3>
+              <p>Confirme sua senha atual para alterar o nome de usuário ou a senha.</p>
+            </div>
+            <label>Nome de usuário<input id="admin-self-account-name" name="name" autoComplete="username" minLength={2} maxLength={100} required /></label>
+            <label>Senha atual<input id="admin-self-account-current-password" type="password" autoComplete="current-password" required /></label>
+            <label>Nova senha (opcional)<input id="admin-self-account-password" type="password" autoComplete="new-password" minLength={12} maxLength={128} /><small>Deixe em branco para manter a senha atual.</small></label>
+            <label>Confirme a nova senha<input id="admin-self-account-confirm-password" type="password" autoComplete="new-password" minLength={12} maxLength={128} /></label>
+            <button className="admin-primary" type="submit">Salvar alterações</button>
+            <p className="admin-feedback" id="admin-self-account-feedback" role="alert" />
+          </form>
           <section className="admin-account-management" id="admin-account-management">
             <div className="admin-section-heading">
               <div><h2>Cadastrar colaborador</h2><p>O colaborador entrará usando o nome ou e-mail e a senha cadastrada.</p></div>
@@ -210,6 +239,21 @@ function AdminPage() {
               <button className="admin-primary" type="submit">Cadastrar colaborador</button>
             </form>
             <div className="admin-account-list" id="admin-account-list" />
+            <form className="admin-self-account-form admin-edit-account-form" id="admin-edit-account-form" hidden>
+              <div>
+                <h3>Editar colaborador</h3>
+                <p>Altere o nome de usuário ou defina uma nova senha para este acesso.</p>
+              </div>
+              <input id="admin-edit-account-id" type="hidden" />
+              <label>Nome de usuário<input id="admin-edit-account-name" name="name" autoComplete="off" minLength={2} maxLength={100} required /></label>
+              <label>Nova senha (opcional)<input id="admin-edit-account-password" type="password" autoComplete="new-password" minLength={12} maxLength={128} /></label>
+              <label>Confirme a nova senha<input id="admin-edit-account-confirm-password" type="password" autoComplete="new-password" minLength={12} maxLength={128} /></label>
+              <div className="employee-form-actions">
+                <button className="admin-secondary" id="admin-edit-account-cancel" type="button">Cancelar</button>
+                <button className="admin-primary" type="submit">Salvar alterações</button>
+              </div>
+              <p className="admin-feedback" id="admin-edit-account-feedback" role="alert" />
+            </form>
           </section>
         </section>
       </section>

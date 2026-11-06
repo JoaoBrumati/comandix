@@ -86,9 +86,29 @@ model AdminAccount {
   createdAt    DateTime       @default(now())
   sessions     AdminSession[]
   challenges   AdminLoginChallenge[]
+  passwordResets AdminPasswordReset[]
   totpCredential AdminTotpCredential?
 
   @@index([createdAt])
+}
+
+model AdminOwnerCredential {
+  id           String   @id @default("owner") @db.VarChar(16)
+  loginName    String   @unique @db.VarChar(100)
+  passwordHash String   @db.Text
+  updatedAt    DateTime @default(now()) @updatedAt
+}
+
+model AdminPasswordReset {
+  tokenHash String       @id @db.Char(64)
+  accountId String?      @db.Uuid
+  isOwner   Boolean      @default(false)
+  expiresAt DateTime
+  createdAt DateTime     @default(now())
+  account   AdminAccount? @relation(fields: [accountId], references: [id], onDelete: Cascade)
+
+  @@index([expiresAt])
+  @@index([accountId])
 }
 
 model AdminLoginChallenge {

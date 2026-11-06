@@ -30,7 +30,7 @@ function App() {
     pageScript.catch((error: unknown) => {
       console.error('Não foi possível iniciar os recursos da página.', error)
       if (active) {
-        setStartupError(`Não foi possível carregar ${isAdminRoute ? 'o painel administrativo' : 'a loja'}. Atualize a página para tentar novamente.`)
+        setStartupError(`Não foi possível carregar ${isAdminRoute ? 'a área administrativa' : 'a loja'}. Atualize a página para tentar novamente.`)
       }
     })
 

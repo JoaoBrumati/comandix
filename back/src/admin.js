@@ -18,6 +18,14 @@ const adminAccountSchema = z.object({
     context.addIssue({ code: 'custom', path: ['permissions'], message: 'Remova permissões duplicadas.' });
   }
 });
+const adminAccountUpdateSchema = z.object({
+  name: z.string().trim().min(2).max(100),
+  password: z.string().min(12).max(128).optional()
+});
+const adminOwnerUpdateSchema = z.object({
+  name: z.string().trim().min(2).max(100),
+  password: z.string().min(12).max(128).optional()
+});
 
 const employeeSchema = z.object({
   name: z.string().trim().min(5).max(100),
@@ -140,6 +148,13 @@ async function lookupOrders(reference = '') {
 async function initializeAdminStore() {
   hashCpf('database-encryption-key-check');
   await prisma.$connect();
+  const passwordHash = process.env.ADMIN_PASSWORD_HASH || (process.env.ADMIN_PASSWORD ? hashPassword(process.env.ADMIN_PASSWORD) : '');
+  if (passwordHash) {
+    await prisma.adminOwnerCredential.createMany({
+      data: [{ id: 'owner', loginName: (process.env.ADMIN_USER || 'admin').trim().toLowerCase(), passwordHash }],
+      skipDuplicates: true
+    });
+  }
 }
 
 async function createAdminSession(token, csrfToken, expiresAt, accountId = null) {
@@ -307,6 +322,14 @@ async function findAdminAccountByLogin(login) {
   });
 }
 
+async function getAdminOwnerCredential() {
+  return prisma.adminOwnerCredential.findUnique({ where: { id: 'owner' } });
+}
+
+async function findAdminAccountByEmail(email) {
+  return prisma.adminAccount.findFirst({ where: { email: { equals: email.trim(), mode: 'insensitive' } } });
+}
+
 async function getAdminAccountById(id) {
   return prisma.adminAccount.findUnique({ where: { id } });
 }
@@ -333,7 +356,8 @@ async function createAdminAccount(payload) {
   const parsed = adminAccountSchema.safeParse(payload);
   if (!parsed.success) return { error: 'Confira o nome, e-mail, senha e permissões do colaborador.', details: parsed.error.flatten() };
   const { password, ...accountData } = parsed.data;
-  const ownerName = (process.env.ADMIN_USER || 'admin').trim().toLowerCase();
+  const ownerCredential = await getAdminOwnerCredential();
+  const ownerName = (ownerCredential?.loginName || process.env.ADMIN_USER || 'admin').trim().toLowerCase();
   const ownerEmail = (process.env.ADMIN_EMAIL || '').trim().toLowerCase();
   if (accountData.name.toLowerCase() === ownerName || (ownerEmail && accountData.email === ownerEmail)) {
     return { error: 'Este nome ou e-mail está reservado para o administrador principal.', status: 409 };
@@ -348,6 +372,105 @@ async function createAdminAccount(payload) {
     if (error.code === 'P2002') return { error: 'Já existe um perfil cadastrado com este nome ou e-mail.', status: 409 };
     throw error;
   }
+}
+
+async function updateAdminOwnerCredentials(payload, currentSessionToken = '') {
+  const parsed = adminOwnerUpdateSchema.safeParse(payload);
+  if (!parsed.success) return { error: 'Informe um nome de usuário válido e, se desejar alterar a senha, use pelo menos 12 caracteres.', details: parsed.error.flatten() };
+  const { name, password } = parsed.data;
+  const loginName = name.toLowerCase();
+  const existingAccount = await prisma.adminAccount.findFirst({ where: { loginName } });
+  if (existingAccount) return { error: 'Já existe um colaborador com este nome de usuário.', status: 409 };
+  const currentOwner = await getAdminOwnerCredential();
+  if (!currentOwner) return { error: 'Credencial do administrador principal não encontrada.', status: 503 };
+  try {
+    const updated = await prisma.adminOwnerCredential.update({
+      where: { id: 'owner' },
+      data: { loginName, ...(password ? { passwordHash: hashPassword(password) } : {}) },
+      select: { loginName: true }
+    });
+    await prisma.adminSession.deleteMany({
+      where: {
+        accountId: null,
+        ...(currentSessionToken ? { tokenHash: { not: sessionTokenHash(currentSessionToken) } } : {})
+      }
+    });
+    return { data: updated };
+  } catch (error) {
+    if (error.code === 'P2002') return { error: 'Já existe uma conta com este nome de usuário.', status: 409 };
+    throw error;
+  }
+}
+
+async function updateAdminAccountCredentials(id, payload, currentSessionToken = '') {
+  const parsed = adminAccountUpdateSchema.safeParse(payload);
+  if (!parsed.success) return { error: 'Informe um nome de usuário válido e, se desejar alterar a senha, use pelo menos 12 caracteres.', details: parsed.error.flatten() };
+  const { name, password } = parsed.data;
+  const loginName = name.toLowerCase();
+  const ownerCredential = await getAdminOwnerCredential();
+  if (ownerCredential?.loginName === loginName) return { error: 'Este nome de usuário está reservado para o administrador principal.', status: 409 };
+  try {
+    const account = await prisma.adminAccount.update({
+      where: { id },
+      data: { name, loginName, ...(password ? { passwordHash: hashPassword(password) } : {}) },
+      select: { id: true, name: true, email: true, permissions: true }
+    });
+    await prisma.adminSession.deleteMany({
+      where: {
+        accountId: id,
+        ...(currentSessionToken ? { tokenHash: { not: sessionTokenHash(currentSessionToken) } } : {})
+      }
+    });
+    return { data: account };
+  } catch (error) {
+    if (error.code === 'P2002') return { error: 'Já existe uma conta com este nome de usuário.', status: 409 };
+    if (error.code === 'P2025') return { error: 'Perfil de colaborador não encontrado.', status: 404 };
+    throw error;
+  }
+}
+
+async function createAdminPasswordReset(token, expiresAt, accountId = null, isOwner = false) {
+  await prisma.adminPasswordReset.deleteMany({ where: { expiresAt: { lte: new Date() } } });
+  await prisma.adminPasswordReset.deleteMany({
+    where: isOwner ? { isOwner: true } : { accountId }
+  });
+  await prisma.adminPasswordReset.create({
+    data: {
+      tokenHash: sessionTokenHash(token),
+      expiresAt,
+      isOwner,
+      ...(accountId ? { accountId } : {})
+    }
+  });
+}
+
+async function deleteAdminPasswordReset(token) {
+  await prisma.adminPasswordReset.deleteMany({ where: { tokenHash: sessionTokenHash(token) } });
+}
+
+async function resetAdminPassword(token, password) {
+  const passwordHash = hashPassword(password);
+  return prisma.$transaction(async transaction => {
+    const tokenHash = sessionTokenHash(token);
+    const reset = await transaction.adminPasswordReset.findUnique({ where: { tokenHash } });
+    if (!reset || reset.expiresAt <= new Date()) return false;
+    const consumed = await transaction.adminPasswordReset.deleteMany({
+      where: { tokenHash, expiresAt: { gt: new Date() } }
+    });
+    if (consumed.count !== 1) return false;
+    const accountId = reset.isOwner ? null : reset.accountId;
+    if (reset.isOwner) {
+      await transaction.adminOwnerCredential.update({
+        where: { id: 'owner' },
+        data: { passwordHash }
+      });
+    } else {
+      if (!accountId) return false;
+      await transaction.adminAccount.update({ where: { id: accountId }, data: { passwordHash } });
+    }
+    await transaction.adminSession.deleteMany({ where: { accountId } });
+    return true;
+  });
 }
 
 async function deleteAdminAccount(id) {
@@ -803,4 +926,4 @@ async function getDashboard(period = 'daily') {
   };
 }
 
-module.exports = { activateAdminTotpSetup, addDocument, addEmployee, addTimeEntry, calculateOrderItems, consumeAdminTotpLoginChallenge, createAdminAccount, createAdminLoginChallenge, createAdminSession, createAdminTotpSetup, createProductGroup, deleteAdminAccount, deleteAdminSession, deleteEmployee, deleteProduct, deleteProductGroup, deletePromotion, findAdminAccountByLogin, getAdminAccountById, getAdminLoginChallenge, getAdminTotpCredential, getAdminTotpSetup, getAdminSession, getAddonPrice, getAddons, getCatalogProduct, getDashboard, getDocument, getEmployee, getMenuSettings, initializeAdminStore, listActivePromotions, listAdminAccounts, listEmployees, listOrders, listProducts, lookupOrders, recordAdminLoginChallengeFailure, recordOrder, resetAdminAccountAuthenticator, saveProduct, savePromotion, scheduleVacation, updateEmployee, updateOrderPayment, updateOrderStatus, updateProductGroup };
+module.exports = { activateAdminTotpSetup, addDocument, addEmployee, addTimeEntry, calculateOrderItems, consumeAdminTotpLoginChallenge, createAdminAccount, createAdminLoginChallenge, createAdminPasswordReset, createAdminSession, createAdminTotpSetup, createProductGroup, deleteAdminAccount, deleteAdminPasswordReset, deleteAdminSession, deleteEmployee, deleteProduct, deleteProductGroup, deletePromotion, findAdminAccountByEmail, findAdminAccountByLogin, getAdminAccountById, getAdminLoginChallenge, getAdminOwnerCredential, getAdminTotpCredential, getAdminTotpSetup, getAdminSession, getAddonPrice, getAddons, getCatalogProduct, getDashboard, getDocument, getEmployee, getMenuSettings, initializeAdminStore, listActivePromotions, listAdminAccounts, listEmployees, listOrders, listProducts, lookupOrders, recordAdminLoginChallengeFailure, recordOrder, resetAdminAccountAuthenticator, resetAdminPassword, saveProduct, savePromotion, scheduleVacation, updateAdminAccountCredentials, updateAdminOwnerCredentials, updateEmployee, updateOrderPayment, updateOrderStatus, updateProductGroup };

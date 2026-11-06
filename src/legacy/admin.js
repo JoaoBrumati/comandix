@@ -178,6 +178,10 @@ async function navigateAdminSection(section) {
 async function loadAdminProfile() {
   const { profile } = await adminRequest('/api/admin/profile');
   currentAdminProfile = profile;
+  const selfAccountForm = document.querySelector('#admin-self-account-form');
+  selfAccountForm.reset();
+  document.querySelector('#admin-self-account-feedback').textContent = '';
+  document.querySelector('#admin-self-account-name').value = profile.name || '';
   const permissions = profile.permissions.map(permission => ({ dashboard: 'Dashboard', orders: 'Kanban', menu: 'Cardápio' })[permission]).join(', ');
   document.querySelector('#admin-profile-details').innerHTML = `
     <div><span>Nome do perfil</span><strong>${escapeHtml(profile.name)}</strong></div>
@@ -197,8 +201,9 @@ async function loadAdminAccounts() {
     ? accounts.map(account => `<article class="admin-account-row">
         <div><strong>${escapeHtml(account.name)}</strong><span>${escapeHtml(account.email)}</span><small>Acessos: ${escapeHtml(account.permissions.map(permission => permissionNames[permission]).join(', '))}</small><small>Microsoft Authenticator: ${account.authenticatorEnabled ? 'configurado' : 'aguardando primeiro acesso'}</small></div>
         <div class="admin-account-actions">
-          ${account.authenticatorEnabled ? `<button class="admin-secondary" type="button" data-reset-admin-authenticator="${escapeHtml(account.id)}">Redefinir Authenticator</button>` : ''}
-          <button class="admin-secondary" type="button" data-delete-admin-account="${escapeHtml(account.id)}">Remover acesso</button>
+        <button class="admin-secondary" type="button" data-edit-admin-account="${escapeHtml(account.id)}" data-admin-account-name="${escapeHtml(account.name)}">Editar acesso</button>
+        ${account.authenticatorEnabled ? `<button class="admin-secondary" type="button" data-reset-admin-authenticator="${escapeHtml(account.id)}">Redefinir Authenticator</button>` : ''}
+        <button class="admin-secondary" type="button" data-delete-admin-account="${escapeHtml(account.id)}">Remover acesso</button>
         </div>
       </article>`).join('')
     : '<p class="admin-empty">Nenhum colaborador cadastrado.</p>';
@@ -229,8 +234,20 @@ async function submitAdminAccount(event) {
 }
 
 async function handleAdminAccountAction(event) {
+  const editButton = event.target.closest('[data-edit-admin-account]');
   const deleteButton = event.target.closest('[data-delete-admin-account]');
   const resetButton = event.target.closest('[data-reset-admin-authenticator]');
+  if (editButton) {
+    const form = document.querySelector('#admin-edit-account-form');
+    form.reset();
+    document.querySelector('#admin-edit-account-feedback').textContent = '';
+    document.querySelector('#admin-edit-account-id').value = editButton.dataset.editAdminAccount;
+    document.querySelector('#admin-edit-account-name').value = editButton.dataset.adminAccountName;
+    form.hidden = false;
+    form.scrollIntoView({ behavior: 'smooth', block: 'center' });
+    document.querySelector('#admin-edit-account-name').focus();
+    return;
+  }
   const button = deleteButton || resetButton;
   if (!button) return;
   const isReset = Boolean(resetButton);
@@ -245,6 +262,111 @@ async function handleAdminAccountAction(event) {
     showAdminToast(isReset ? 'Authenticator redefinido. O colaborador poderá configurá-lo no próximo login.' : 'Acesso do colaborador removido.');
   } catch (error) {
     showAdminToast(error.message);
+  }
+}
+
+async function submitAdminSelfAccount(event) {
+  event.preventDefault();
+  const form = event.currentTarget;
+  const password = document.querySelector('#admin-self-account-password').value;
+  const confirmation = document.querySelector('#admin-self-account-confirm-password').value;
+  const feedback = document.querySelector('#admin-self-account-feedback');
+  if (password !== confirmation) {
+    feedback.textContent = 'As novas senhas não coincidem.';
+    return;
+  }
+  const payload = {
+    name: document.querySelector('#admin-self-account-name').value.trim(),
+    currentPassword: document.querySelector('#admin-self-account-current-password').value,
+    ...(password ? { password } : {})
+  };
+  try {
+    const result = await adminRequest('/api/admin/profile', {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload)
+    });
+    currentAdminProfile = result.profile;
+    form.reset();
+    document.querySelector('#admin-self-account-name').value = currentAdminProfile.name;
+    await loadAdminProfile();
+    showAdminToast('Seu acesso foi atualizado.');
+  } catch (error) {
+    feedback.textContent = error.message;
+  }
+}
+
+async function submitEditedAdminAccount(event) {
+  event.preventDefault();
+  const form = event.currentTarget;
+  const id = document.querySelector('#admin-edit-account-id').value;
+  const password = document.querySelector('#admin-edit-account-password').value;
+  const confirmation = document.querySelector('#admin-edit-account-confirm-password').value;
+  const feedback = document.querySelector('#admin-edit-account-feedback');
+  if (password !== confirmation) {
+    feedback.textContent = 'As novas senhas não coincidem.';
+    return;
+  }
+  try {
+    await adminRequest(`/api/admin/accounts/${encodeURIComponent(id)}`, {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        name: document.querySelector('#admin-edit-account-name').value.trim(),
+        ...(password ? { password } : {})
+      })
+    });
+    form.reset();
+    form.hidden = true;
+    await loadAdminAccounts();
+    showAdminToast('Acesso do colaborador atualizado.');
+  } catch (error) {
+    feedback.textContent = error.message;
+  }
+}
+
+async function submitForgotPassword(event) {
+  event.preventDefault();
+  const feedback = document.querySelector('#forgot-password-feedback');
+  feedback.textContent = '';
+  try {
+    const result = await adminRequest('/api/admin/forgot-password', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ email: document.querySelector('#admin-forgot-password-email').value.trim() })
+    });
+    feedback.textContent = result.message;
+  } catch (error) {
+    feedback.textContent = error.message;
+  }
+}
+
+async function submitResetPassword(event) {
+  event.preventDefault();
+  const password = document.querySelector('#admin-reset-password').value;
+  const confirmation = document.querySelector('#admin-reset-password-confirm').value;
+  const feedback = document.querySelector('#reset-password-feedback');
+  feedback.textContent = '';
+  if (password !== confirmation) {
+    feedback.textContent = 'As novas senhas não coincidem.';
+    return;
+  }
+  try {
+    const result = await adminRequest('/api/admin/reset-password', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        token: document.querySelector('#admin-reset-password-token').value,
+        password
+      })
+    });
+    feedback.textContent = result.message;
+    event.currentTarget.hidden = true;
+    adminLoginForm.hidden = false;
+    adminLoginFeedback.textContent = result.message;
+    history.replaceState(null, '', '/login');
+  } catch (error) {
+    feedback.textContent = error.message;
   }
 }
 
@@ -1034,6 +1156,32 @@ document.querySelector('#promotion-percent')?.addEventListener('input', updatePr
 document.querySelector('#dashboard-filter')?.addEventListener('change', applyDashboardFilter);
 document.querySelector('#admin-account-form')?.addEventListener('submit', submitAdminAccount);
 document.querySelector('#admin-account-list')?.addEventListener('click', handleAdminAccountAction);
+document.querySelector('#admin-self-account-form')?.addEventListener('submit', submitAdminSelfAccount);
+document.querySelector('#admin-edit-account-form')?.addEventListener('submit', submitEditedAdminAccount);
+document.querySelector('#admin-edit-account-cancel')?.addEventListener('click', () => {
+  const form = document.querySelector('#admin-edit-account-form');
+  form.reset();
+  form.hidden = true;
+});
+document.querySelector('#admin-forgot-password-form')?.addEventListener('submit', submitForgotPassword);
+document.querySelector('#admin-reset-password-form')?.addEventListener('submit', submitResetPassword);
+document.querySelector('#forgot-password-link')?.addEventListener('click', () => {
+  adminLoginForm.hidden = true;
+  document.querySelector('#admin-login-feedback').textContent = '';
+  document.querySelector('#admin-forgot-password-form').hidden = false;
+  document.querySelector('#admin-forgot-password-email').focus();
+});
+document.querySelector('#forgot-password-back')?.addEventListener('click', () => {
+  document.querySelector('#admin-forgot-password-form').hidden = true;
+  document.querySelector('#admin-login-form').hidden = false;
+  document.querySelector('#forgot-password-feedback').textContent = '';
+});
+document.querySelector('#reset-password-back')?.addEventListener('click', () => {
+  document.querySelector('#admin-reset-password-form').hidden = true;
+  document.querySelector('#admin-login-form').hidden = false;
+  document.querySelector('#reset-password-feedback').textContent = '';
+  history.replaceState(null, '', '/login');
+});
 document.querySelector('#refresh-kanban')?.addEventListener('click', () => loadKanban().catch(error => showAdminToast(error.message)));
 document.querySelectorAll('[data-kanban-period]').forEach(button => {
   button.classList.toggle('active', button.dataset.kanbanPeriod === kanbanPeriod);
@@ -1090,6 +1238,17 @@ updateWhatsAppLink();
 const adminPath = window.location.pathname.replace(/\/+$/, '') || '/';
 const adminRoute = window.location.hash.match(/^#admin(?:\/(dashboard|orders|menu|profile))?$/);
 if (adminPath === '/login' || adminPath === '/admin') {
-  requestedAdminSection = adminRoute?.[1] || 'dashboard';
-  loadAdminSession();
+  const resetToken = new URLSearchParams(window.location.hash.slice(1)).get('reset')
+    || new URLSearchParams(window.location.search).get('reset');
+  if (resetToken) {
+    adminLoginForm.hidden = true;
+    document.querySelector('#admin-login-feedback').textContent = '';
+    document.querySelector('#admin-reset-password-token').value = resetToken;
+    document.querySelector('#admin-reset-password-form').hidden = false;
+    history.replaceState(null, '', '/admin');
+    document.querySelector('#admin-reset-password').focus();
+  } else {
+    requestedAdminSection = adminRoute?.[1] || 'dashboard';
+    loadAdminSession();
+  }
 }
